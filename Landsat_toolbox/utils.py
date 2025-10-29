@@ -1294,9 +1294,17 @@ def print_single_stacked_Zvalue(output_folder, xy_list, datacube, offset_list, n
             doy_list_ = np.array(copy.copy(doy_list))
             doy_list_ = np.delete(doy_list_, np.argwhere(dc_temp == nodata_value))
             dc_temp = np.delete(dc_temp, np.argwhere(dc_temp == nodata_value))
+            if not os.path.exists(output_folder + f'csv_data\\stacked_{str(x)}_{str(y)}.csv'):
+                bf.create_folder(output_folder + f'csv_data\\')
+                df_ = pd.DataFrame({'DOY': doy_list_, 'vi': dc_temp})
+                df_.to_csv(output_folder + f'csv_data\\stacked_{str(x)}_{str(y)}.csv')
+            
             if dc_temp.shape[0] != 0:
                 fig1, ax1 = plt.subplots(figsize=(12, 8), constrained_layout=True)
                 ax1.scatter(doy_list_, dc_temp, s=8**2, color=(196/256, 80/256, 80/256), edgecolor=(0/256, 0/256, 0/256), linewidth=2, zorder=4)
                 plt.savefig(output_folder + f'stacked_{str(x)}_{str(y)}.png')
                 fig1 = None
                 ax1 = None
+                plt.close()
+        
+        

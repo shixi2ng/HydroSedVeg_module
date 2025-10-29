@@ -1,11 +1,8 @@
-# coding=utf-8
-import copy
-import traceback
-
-import numpy as np
-import pandas as pd
-
-import basic_function
+    # coding=utf-8
+import os
+os.environ["MPLBACKEND"] = "Agg"   # 确保子进程也继承
+import matplotlib
+matplotlib.use("Agg")
 from .utils import *
 import matplotlib.pyplot as plt
 import sys
@@ -672,7 +669,7 @@ class RS_dcs(object):
         else:
             self._DEM_path = None
 
-    def CCDC(self, index_list: list, ):
+    def CCDC(self, index_list: list,):
 
         # proces args*
         index_new_list = []
@@ -692,7 +689,7 @@ class RS_dcs(object):
 
         # Check the consistency
         index_num = [self._index_list.index(_) for _ in index_list]
-        nodata_list = [self._Nodata_value_list]
+        nodata_list = self._Nodata_value_list
         x_size = [self._dc_XSize_list[num_] for num_ in index_num]
         y_size = [self._dc_YSize_list[num_] for num_ in index_num]
         doy_min = min([int(np.floor(min(self._doys_backup_[num_]) / 10000)) for num_ in index_num])
@@ -733,17 +730,30 @@ class RS_dcs(object):
             index_size_list.append([int(max(0, pos_list[-1]['y'].min())), int(min(sa_map.shape[0], pos_list[-1]['y'].max())),
                                     int(max(0, pos_list[-1]['x'].min())), int(min(sa_map.shape[1], pos_list[-1]['x'].max()))])
             xy_offset_list.append([int(max(0, pos_list[-1]['y'].min())), int(max(0, pos_list[-1]['x'].min()))])
-            dc_temp_list = []
+            dc_temp_list, doy_temp_list = [], []
 
             for dc_num in index_num:
                 if self._sparse_matrix_list[dc_num]:
                     dc_temp = self.dcs[dc_num].extract_matrix(([index_size_list[-1][0], index_size_list[-1][1] + 1], [index_size_list[-1][2], index_size_list[-1][3] + 1], ['all']))
                     dc_temp_list.append(dc_temp.drop_nanlayer())
-                    doy_all_list.append(dc_temp_list[-1].SM_namelist)
+                    doy_temp_list.append(dc_temp_list[-1].SM_namelist)
                 else:
                     dc_temp_list.append(self.dcs[dc_num][index_size_list[-1][0]: index_size_list[-1][1] + 1, index_size_list[-1][2]: index_size_list[-1][3] + 1, :])
-                    doy_all_list.append(self._doys_backup_[dc_num])
+                    doy_temp_list.append(self._doys_backup_[dc_num])
+
+            if False not in [_ == doy_temp_list[0] for _ in doy_temp_list]:
+                doy_union = doy_temp_list[0]
+            else:
+                doy_union = set.intersection(*map(set, doy_temp_list))  # 并集（无序）
+                doy_union = sorted(doy_union)
+                for dc_ in dc_temp_list:
+                    if dc_.SM_namelist != doy_union:
+                        dc_num = [_ for _ in dc_.SM_namelist if _ not in doy_union]
+                        for dc_doy in dc_num:
+                            dc_.remove_layer(dc_doy)
+
             index_dc_list.append(dc_temp_list)
+            doy_all_list.append(doy_union)
 
         # for _ in range(len(index_dc_list)):
         #     run_CCDC(index_dc_list[_], doy_all_list[_], pos_list[_], xy_offset_list[_], index_list, nodata_list, offset_list, resize_factor, output_folder, doy_min)
@@ -752,7 +762,7 @@ class RS_dcs(object):
             exe.map(run_CCDC, index_dc_list, doy_all_list, pos_list, xy_offset_list, repeat(index_list), repeat(nodata_list), repeat(offset_list), repeat(resize_factor), repeat(output_folder), repeat(doy_min))
 
 
-    def process_CCDC_res(self, ccdc_folder):
+    def process_CCDC_res(self, ccdc_folder, yrs: list):
 
         sa_ds = gdal.Open(self.ROI_tif)
         sa_array = sa_ds.GetRasterBand(1).ReadAsArray()
@@ -761,6 +771,11 @@ class RS_dcs(object):
         break_arr = np.zeros_like(sa_array)
         break_tmin_arr = np.zeros_like(sa_array)
         break_tmax_arr = np.zeros_like(sa_array)
+        yrs_arr_dic = {}
+        for _ in yrs:
+            yrs_arr_dic[_] = np.zeros_like(sa_array).astype(np.byte)
+            yrs_arr_dic[_][sa_array == -32768] = 255
+
         break_arr[sa_array == -32768] = -32768
         break_tmin_arr[sa_array == -32768] = -32768
         break_tmax_arr[sa_array == -32768] = -32768
@@ -779,18 +794,31 @@ class RS_dcs(object):
         results = list(results)
         for result in results:
             for res in result:
-                x, y, count, tmin, tmax = res
+                x, y, count, tmin, tmax, tcombine = res
                 break_arr[y, x] = count
                 break_tmin_arr[y, x] = tmin if count > 0 else 0
                 break_tmax_arr[y, x] = tmax if count > 0 else 0
+                try:
+                    for _ in tcombine:
+                        if _ != 0:
+                            yrs_arr_dic[_ + min(yrs)][y, x] = 1
+                except:
+                    print(str(tcombine))
+                    print('fuck!')
 
         np.save(os.path.join(map_folder, 'break_time.npy'), break_arr)
         np.save(os.path.join(map_folder, 'break_min_time.npy'), break_tmin_arr)
         np.save(os.path.join(map_folder, 'break_max_time.npy'), break_tmax_arr)
+        for _ in yrs:
+            np.save(os.path.join(map_folder, f'break_yr{str(_)}.npy'), yrs_arr_dic[_])
+
         # 写出结果栅格
         basic_function.write_raster(sa_ds, break_arr, map_folder, 'break_time.TIF', nodatavalue=-32768)
         basic_function.write_raster(sa_ds, break_tmin_arr, map_folder, 'break_min_time.TIF', nodatavalue=-32768)
         basic_function.write_raster(sa_ds, break_tmax_arr, map_folder, 'break_max_time.TIF', nodatavalue=-32768)
+        for _ in yrs:
+            basic_function.write_raster(sa_ds, yrs_arr_dic[_], map_folder, f'break_yr{str(_)}.TIF', nodatavalue=255, raster_datatype=gdal.GDT_Byte)
+
 
     def custom_composition(self, index, dc_type, **kwargs):
 
@@ -1579,8 +1607,7 @@ class RS_dcs(object):
         self.append(Landsat_dc(self._dcs_backup_[self._pheyear_list.index(pheyear[0])].ori_dc_folder))
         doy_list = self._dcs_backup_[-1].sdc_doylist
         doy_list = date2doy(doy_list)
-        doy_lower_range = np.argwhere(np.logical_and(np.array(doy_list) > min(pheyear) * 1000, np.array(doy_list) < (max(pheyear) + 1) * 1000)).min()
-        doy_upper_range =np.argwhere(np.logical_and(np.array(doy_list) > min(pheyear) * 1000, np.array(doy_list) < (max(pheyear) + 1) * 1000)).max()
+        doy_list = [np.mod(_, 1000) for _ in doy_list]
 
         # check output fpolde
         if not os.path.exists(output_folder):
@@ -1623,21 +1650,6 @@ class RS_dcs(object):
                                         -1] else value - self._Zoffset_list[-1]
                                     ax.scatter(doy_, value, s=10 ** 2, marker='o',  edgecolors=(0.1, 0.1, 0.1), facecolor=(1, 1, 1), alpha=1, linewidths=1)
 
-                                # Plot the curve
-                                for year_ in pheyear:
-                                    phe_pos = self._pheyear_list.index(year_)
-                                    doy_arr = np.linspace(1, int(datetime.date(year = year_ + 1, month = 1, day = 1).toordinal() - datetime.date(year = year_, month = 1, day = 1).toordinal()),
-                                                          int(datetime.date(year = year_ + 1, month = 1, day = 1).toordinal() - datetime.date(year = year_, month = 1, day = 1).toordinal()))
-                                    plot_arr = np.linspace(datetime.date(year = year_, month = 1, day = 1).toordinal() - datetime.date(year = min(pheyear), month = 1, day = 1).toordinal() + 1,
-                                                           datetime.date(year = year_ + 1, month = 1, day = 1).toordinal() - datetime.date(year = min(pheyear), month = 1, day = 1).toordinal(),
-                                                           int(datetime.date(year = year_ + 1, month = 1, day = 1).toordinal() - datetime.date(year = year_, month = 1, day = 1).toordinal()))
-                                    if self._dcs_backup_[phe_pos].curfit_dic['CFM'] == 'SPL':
-                                        para_list = np.array([self.dcs[phe_pos].SM_group[f'{str(year_)}_para_{str(_)}'][y_, x_] for _ in range(7)])
-                                        if np.argwhere(para_list != self._Nodata_value_list[phe_pos]).shape[0] == 7:
-                                            value_list = seven_para_logistic_function(doy_arr, *para_list)
-                                            ax.plot(plot_arr, value_list, lw=2, ls='-.', c=(255/256, 0/256, 0/256), )
-                                    else:
-                                        break
                                 plt.savefig(f'{output_folder}\\pheme_{str(y_)}_{str(x_)}.png', dpi = 300)
                                 plt.close()
                             pbar.update()
@@ -5286,8 +5298,3 @@ class RS_dcs(object):
                 raise Exception('Please input the valid DPAR and TEM datacube')
 
         biomass_dc_inform = None
-
-
-
-
-

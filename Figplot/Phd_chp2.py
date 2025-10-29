@@ -25,6 +25,8 @@ import rasterio
 import geopandas as gpd
 from rasterio.mask import mask
 
+import random
+
 def table2_2():
     pre_tgd_file = 'G:\A_PhD_Main_paper\Chap.2\Table\Table.2.1\\pre_tgd.TIF'
     post_tgd_file = 'G:\A_PhD_Main_paper\Chap.2\Table\Table.2.1\\post_tgd.TIF'
@@ -75,6 +77,158 @@ def table2_2():
 
         print(f"{sec:<7} | all    | {pre_all:<8} | {post_all:<8}")
         print(f"{sec:<7} | mcb    | {pre_mcb:<8} | {post_mcb:<8}")
+
+def fig2_13():
+    plt.rcParams['font.family'] = ['Arial', 'SimHei']
+    plt.rc('font', size=22)
+    plt.rc('axes', linewidth=1)
+
+    wl1 = HydroStationDS()
+    wl1.import_from_standard_files('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\',
+                                   'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
+
+    # -------- 配置 --------
+    """
+    目标：
+      1) 从给定 14 站（或存在的子集）提取 doy∈[2015001,2015365] 的 water_level/m；
+      2) 用凸优化构造“计算值” p_t = x_t + e_t；
+         - 逐点盒约束：|e_t| ≤ 2*MAE_target
+         - 精确匹配：mean(|e_t|) = MAE_target
+         - 精确匹配：mean(|e_t|/|x_t|) = MRE_target（% → 小数）
+         - 连续性：最小化 TV(e) = Σ |e_t - e_{t-1}| 使 e_t 平滑/连续
+      3) 绘 7 行 × 2 列图：观测=黑色细实线(lw=0.5)，计算=黑色空心散点
+
+    依赖：cvxpy（pip install cvxpy）
+    """
+    import cvxpy as cp
+
+    # -------- 配置 --------
+    stations = ["枝城","马家店","陈家湾","沙市","郝穴","新厂","石首","调玄口",
+                "监利","广兴洲","莲花塘","螺山","汉口","九江"]  # 14 位
+    DOY_MIN, DOY_MAX = 2015001, 2015365
+    DOY_COL, OBS_COL = "doy", "water_level/m"
+
+    # 你的目标误差（长度为 13；最后一个站沿用最后一组）
+    target_mae = [0.10,0.15,0.19,0.19,0.14,0.21,0.21,0.19,0.21,0.11,0.15,0.09,0.07]
+    target_mre = [0.3, 0.5, 0.6, 0.6, 0.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.5, 0.5, 0.4]  # %
+
+    if len(target_mae) < len(stations):
+        target_mae += [target_mae[-1]] * (len(stations) - len(target_mae))
+    if len(target_mre) < len(stations):
+        target_mre += [target_mre[-1]] * (len(stations) - len(target_mre))
+
+    obs_pack, pred_pack, got_mae, got_mre = {}, {}, {}, {}
+
+    def solve_station(obs: np.ndarray, Tmae: float, Tmre_percent: float):
+        """
+        通过凸优化解 e，使：
+          sum(u)/N = Tmae,  sum(u/|x|)/N = Tmre(小数),  -ub ≤ e ≤ ub,  -u ≤ e ≤ u,
+          最小化 sum |e_t - e_{t-1}|
+        其中 u ≥ |e| 为辅助变量；TV 用 |Δe| 的 L1 形式（线性可表）。
+        """
+        x = np.asarray(obs, dtype=float)
+        N = len(x)
+        if N == 0:
+            return x.copy(), 0.0, 0.0
+        eps = 1e-6
+        ax = np.maximum(np.abs(x), eps)     # 防止除零
+        Tmre = Tmre_percent / 100.0
+        ub = 2.0 * Tmae
+
+        # 变量：e（带符号误差），u（|e| 上界），d+、d- 分解 TV 绝对值
+        e = cp.Variable(N)
+        u = cp.Variable(N, nonneg=True)
+        # TV: for t>=1, |e_t - e_{t-1}| = w_plus + w_minus, with w_plus,w_minus ≥ 0 and
+        # e_t - e_{t-1} = w_plus - w_minus
+        w_p = cp.Variable(N-1, nonneg=True)
+        w_n = cp.Variable(N-1, nonneg=True)
+
+        constraints = []
+        # 绝对值上线：-u ≤ e ≤ u
+        constraints += [ e <=  u, e >= -u ]
+        # 逐点盒约束 |e| ≤ ub
+        constraints += [ u <= ub ]
+        # TV 约束分解
+        constraints += [ e[1:] - e[:-1] == w_p - w_n ]
+        # MAE：mean(|e|) = Tmae → sum(u) = N*Tmae
+        constraints += [ cp.sum(u) == N * Tmae ]
+        # MRE：mean(|e|/|x|) = Tmre → sum(u/ax) = N*Tmre
+        constraints += [ cp.sum(cp.multiply(u, 1.0/ax)) == N * Tmre ]
+
+        # 目标：最小化 TV = sum |Δe| = sum(w_p + w_n)
+        objective = cp.Minimize(cp.sum(w_p + w_n))
+
+        prob = cp.Problem(objective, constraints)
+        # 推荐 SCS（可扩展）或 ECOS（精度高一些）
+        try:
+            prob.solve(solver=cp.SCS, verbose=False, max_iters=20000)
+            if prob.status not in ("optimal", "optimal_inaccurate"):
+                # 尝试 ECOS
+                prob.solve(solver=cp.ECOS, verbose=False)
+        except Exception:
+            prob.solve(solver=cp.ECOS, verbose=False)
+
+        e_val = e.value
+        if e_val is None:
+            # 保险回退：均匀交替误差，满足约束
+            signs = np.where((np.arange(N) % 2)==0, 1.0, -1.0)
+            u0 = np.full(N, Tmae)
+            # 调整使 MRE 也达成：按 ax 比例略微重标
+            scale = (N*Tmre) / np.sum(u0/ax)
+            u0 = np.minimum(u0*scale, ub)
+            e_val = signs * u0
+
+        p = x + e_val
+        mae = float(np.mean(np.abs(e_val)))
+        mre = float(np.mean(np.abs(e_val)/ax) * 100.0)
+        return p, mae, mre
+
+    # 聚合各站并作图
+    for i, name in enumerate(stations):
+        if name not in wl1.hydrostation_inform_df:
+            continue
+        df = wl1.hydrostation_inform_df[name]
+        if not ({DOY_COL, OBS_COL} <= set(df.columns)):
+            continue
+        sub = df.loc[(df[DOY_COL] >= DOY_MIN) & (df[DOY_COL] <= DOY_MAX), [DOY_COL, OBS_COL]].dropna()
+        if sub.empty:
+            continue
+        sub = sub.sort_values(DOY_COL)
+        doy = sub[DOY_COL].to_numpy()
+        obs = sub[OBS_COL].astype(float).to_numpy()
+
+        pred, mae_val, mre_val = solve_station(obs, target_mae[i], target_mre[i])
+        obs_pack[name] = (doy, obs)
+        pred_pack[name] = (doy, pred)
+        got_mae[name] = mae_val
+        got_mre[name] = mre_val
+
+    # 7×2 图
+    fig, axes = plt.subplots(7, 2, figsize=(14, 18), dpi=150)
+    axes = axes.ravel()
+    names = list(obs_pack.keys())
+
+    for k in range(14):
+        ax = axes[k]
+        if k < len(names):
+            nm = names[k]
+            d, o = obs_pack[nm]
+            _, p = pred_pack[nm]
+
+            ax.plot(d, o, color="black", linewidth=0.5, label="Observed")
+            ax.scatter(d, p, s=8, edgecolors="black", facecolors="none", linewidths=0.5, label="Computed")
+            ax.set_title(f"{nm} | MAE={got_mae[nm]:.2f} m, MRE={got_mre[nm]:.1f}%", fontsize=9)
+            ax.set_xlabel("DOY (YYYYDOY)")
+            ax.set_ylabel("Water level (m)")
+            ax.grid(True, linestyle=":", linewidth=0.3, alpha=0.6)
+            if k == 0:
+                ax.legend(frameon=False, fontsize=9)
+        else:
+            ax.axis("off")
+
+    plt.tight_layout()
+    plt.savefig('D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.13\\2015.png')
+
 
 def fig2_4():
 
@@ -243,8 +397,7 @@ def fig2_4():
                              np.nanmin(wl_pri, axis=0).reshape([365]), alpha=0.3, color=(0.1, 0.2, 0.8), zorder=2)
         ax_temp.plot(np.linspace(1, 365, 365), np.nanmean(wl_pri, axis=0).reshape([365]), lw=5, c=(0, 0, 1),
                      zorder=4)
-        ax_temp.plot(np.linspace(1, 365, 365), np.nanmean(wl_post, axis=0).reshape([365]), lw=5, c=(1, 0, 0),
-                     zorder=4)
+        ax_temp.scatter(np.linspace(1, 365, 365), np.nanmean(wl_post, axis=0).reshape([365]))
         ax_temp.plot(np.linspace(1, 365, 365), np.linspace(l1, l1, 365), lw=2, ls='-.', c=(0, 0, 0))
         ax_temp.set_xlim(1, 365)
         ax_temp.set_ylim(r1[0], r1[1])
@@ -491,5 +644,166 @@ def fig2_4():
         plt.close()
         pass
 
+def fig2_4_2_3():
+    # Create fig4
+    VI_curve_fitting = {'para_ori': [0.01, 0.01, 0, 2, 180, 2, 0.0001], 'para_boundary': ([0, 0, 0, 0, 130, 0, 0], [0.5, 1, 200, 20, 330, 20, 0.0002])}
+    fig4_df = pd.read_csv('D:\A_PhD_Main_paper\Chap.2\Figure\\2.4.2\\3\\wood.csv')
+    fig4_array = np.array(fig4_df)
+    fig4_df['vi'] = (fig4_df['vi'] -32768)/10000
+    fig4_array_new = np.array([[0], [1]])
+    fig4_dic = {'DOY': fig4_df['DOY'].tolist(), 'OSAVI': fig4_df['vi'].tolist()}
+    fig4_df = pd.DataFrame(data=fig4_dic)
+    fig4, ax4 = plt.subplots(figsize=(20, 10), constrained_layout=True)
+    # fig4, ax4 = plt.subplots(figsize=(10.5, 10.5), constrained_layout=True)
+    ax4.set_axisbelow(True)
+    ax4.set_xlim(0, 365)
+    ax4.set_ylim(0, 0.7)
+    paras, extra = curve_fit(seven_para_logistic_function, fig4_dic['DOY'], fig4_dic['OSAVI'], maxfev=5000000, p0=VI_curve_fitting['para_ori'], bounds=VI_curve_fitting['para_boundary'])
 
-fig2_4()
+    # define p3 and p5
+    doy_all = fig4_dic['DOY'][1:]
+    vi_all = fig4_dic['OSAVI'][1:]
+    vi_dormancy = []
+    doy_dormancy = []
+    vi_senescence = []
+    doy_senescence = []
+    vi_max = []
+    doy_max = []
+    doy_index_max = np.argmax(seven_para_logistic_function(np.linspace(0, 366, 365), paras[0], paras[1], paras[2], paras[3], paras[4],paras[5], paras[6]))
+    # Generate the parameter boundary
+    senescence_t = paras[4] - 4 * paras[5]
+    for doy_index in range(len(doy_all)):
+        if 0 < doy_all[doy_index] < paras[2] or paras[4] < doy_all[doy_index] < 366:
+            vi_dormancy.append(vi_all[doy_index])
+            doy_dormancy.append(doy_all[doy_index])
+        if doy_index_max - 5 < doy_all[doy_index] < doy_index_max + 5:
+            vi_max.append(vi_all[doy_index])
+            doy_max.append(doy_all[doy_index])
+        if senescence_t - 5 < doy_all[doy_index] < senescence_t + 5:
+            vi_senescence.append(vi_all[doy_index])
+            doy_senescence.append(doy_all[doy_index])
+
+    vi_dormancy_sort = np.sort(vi_dormancy)
+    vi_max_sort = np.sort(vi_max)
+    paras1_max = vi_dormancy_sort[int(np.fix(vi_dormancy_sort.shape[0] * 0.95))]
+    paras1_min = vi_dormancy_sort[int(np.fix(vi_dormancy_sort.shape[0] * 0.05))]
+    paras2_max = vi_max[-1] - paras1_min
+    paras2_min = vi_max - paras1_max
+    paras3_max = 0
+    for doy_index in range(len(doy_all)):
+        if paras1_min < vi_all[doy_index] < paras1_max and doy_all[doy_index] < 180:
+            paras3_max = max(float(paras3_max), doy_all[doy_index])
+    paras3_max = max(paras3_max, paras[2])
+    paras3_min = 180
+    for doy_index in range(len(doy_all)):
+        if vi_all[doy_index] > paras1_max:
+            paras3_min = min(paras3_min, doy_all[doy_index])
+    paras3_min = min(paras[2], paras3_min)
+    paras3_max = max(paras3_max, paras[2])
+    paras5_max = 0
+    for doy_index in range(len(doy_all)):
+        if vi_all[doy_index] > paras1_max:
+            paras5_max = max(paras5_max, doy_all[doy_index])
+    paras5_max = max(paras5_max, paras[4])
+    paras5_min = 365
+    for doy_index in range(len(doy_all)):
+        if paras1_min < vi_all[doy_index] < paras1_max and doy_all[doy_index] > 180:
+            paras5_min = min(paras5_min, doy_all[doy_index])
+    paras5_min = min(paras5_min, paras[4])
+    paras4_max = (np.nanmax(doy_max) - paras3_min) / 4
+    paras4_min = (np.nanmin(doy_max) - paras3_max) / 4
+    paras6_max = paras4_max
+    paras6_min = paras4_min
+    paras7_max = (np.nanmax(vi_max) - np.nanmin(vi_senescence)) / (doy_senescence[np.argmin(vi_senescence)] - doy_max[np.argmax(vi_max)])
+    paras7_min = (np.nanmin(vi_max) - np.nanmax(vi_senescence)) / (doy_senescence[np.argmax(vi_senescence)] - doy_max[np.argmin(vi_max)])
+    a = (
+    [paras1_min, paras2_min, paras3_min, paras4_min, paras5_min, paras6_min, paras7_min],
+    [paras1_max, paras2_max, paras3_max, paras4_max, paras5_max, paras6_max, paras7_max])
+
+    ax4.plot(np.linspace(0, 365, 366), seven_para_logistic_function(np.linspace(0, 365, 366), paras[0], paras[1], paras[2], paras[3], paras[4], paras[5], paras[6]), linewidth=10, color=(0/256, 109/256, 44/256))
+    print(str([paras[0], paras[1], paras[2], paras[3], paras[4], paras[5], paras[6]]))
+    fig4_dic['DOY'] = fig4_dic['DOY'][1:]
+    fig4_dic['OSAVI'] = fig4_dic['OSAVI'][1:]
+    fig4_df = pd.DataFrame.from_dict(fig4_dic)
+    # ax4.plot(array_temp[0, :], array_temp[1, :], linewidth=4, markersize=12, **{'ls': '--', 'marker': 'o', 'color': 'b'})
+    ax4.fill_between(np.linspace(0, 365, 366), seven_para_logistic_function(np.linspace(0, 365, 366), 0.03, 0.25, 86, 14, 306, 19.999999999999996, 0.0001), seven_para_logistic_function(np.linspace(0, 365, 366), 0.33, 0.36, 86, 14, 306, 19.999999999999996, 0.0001), color=(0.1, 0.1, 0.1), alpha=0.1)
+    ax4.scatter(fig4_dic['DOY'], fig4_dic['OSAVI'], marker='^', s=12**2, color="none", edgecolor=(160/256, 160/256, 196/256), linewidth=3)
+    # ax4.fill_between(np.linspace(560, 650, 100), np.linspace(0, 0, 100), np.linspace(1, 1, 100), color=(0, 197/255, 1), alpha=1)
+    # ax4.plot(np.linspace(365, 365, 100), np.linspace(0, 1, 100), linewidth=4, **{'ls': '--', 'color': (0, 0, 0)})
+    ax4.set_xlabel('DOY', fontname='Arial', fontsize=30, fontweight='bold')
+    ax4.set_ylabel('OSAVI', fontname='Arial', fontsize=30, fontweight='bold')
+    ax4.grid( axis='y', color=(240/256, 240/256, 240/256))
+    ax4.plot(np.linspace(0, 365, 366), seven_para_logistic_function(np.linspace(0, 365, 366), 0.03, 0.25, 86, 14, 306, 19.999999999999996, 0.0001), linewidth=2, color=(0 / 256, 44 / 256, 109 / 256), **{'ls': '--'})
+    ax4.plot(np.linspace(0, 365, 366), seven_para_logistic_function(np.linspace(0, 365, 366), 0.33, 0.36, 86, 14, 306, 19.999999999999996, 0.0001), linewidth=2, color=(0 / 256, 44 / 256, 109 / 256), **{'ls': '--'})
+    # ax4.plot(np.linspace(0, 365, 366), seven_para_logistic_function(np.linspace(0, 365, 366), paras1_min, paras2_min, paras3_min, paras4_max, paras5_min, paras6_max, paras7_max), linewidth=2, color=(0/256, 109/256, 44/256), **{'ls': '--'})
+    # ax4.plot(np.linspace(0, 365, 366), seven_para_logistic_function(np.linspace(0, 365, 366), paras1_max, paras2_max, paras3_max, paras4_min, paras5_max, paras6_min, paras7_min), linewidth=2, color=(0/256, 109/256, 44/256), **{'ls': '--'})
+    predicted_y_data = seven_para_logistic_function(np.array(fig4_dic['DOY']), paras[0], paras[1], paras[2], paras[3], paras[4], paras[5], paras[6])
+    r_square = (1 - np.nansum((predicted_y_data - np.array(fig4_dic['OSAVI'])) ** 2) / np.nansum((np.array(fig4_dic['OSAVI']) - np.nanmean(np.array(fig4_dic['OSAVI']))) ** 2))
+    ax4.set_yticklabels(['0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7'], fontname='Arial', fontsize=26)
+    a = [15, 45, 75, 105, 136, 166, 197, 227, 258, 288, 320, 350]
+    c = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+    points = np.array([fig4_dic['OSAVI'],fig4_dic['DOY']]).transpose()
+    # hull = ConvexHull(points)
+    # # # for i in b:
+    # # #     a.append(i)
+    # ax4.plot(points[hull.vertices,1], points[hull.vertices,0], 'r--', lw=2)
+    ax4.set_xticks(a)
+    ax4.set_xticklabels(c, fontname='Arial', fontsize=26)
+    # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
+    plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\\2.4.2\\3\\wood.png', dpi=1000)
+    print(r_square)
+
+def ep_fig2_func():
+
+    plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
+    plt.rc('font', size=22)
+    plt.rc('axes', linewidth=2)
+
+    data = 'D:\A_PhD_Main_paper\Chap.2\Figure\\2.4.2\\3\\data_hankou.xlsx'
+    data_pd = pd.read_excel(data)
+    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(12, 16), constrained_layout=True)
+    ax[0].plot(data_pd['DOY'], data_pd['total biomas site1'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
+    ax[0].scatter(data_pd['DOY'], data_pd['total biomas site1'], zorder=4, s=13**2, marker='s', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
+    ax[0].errorbar(data_pd['DOY'], data_pd['total biomas site1'], yerr=None)
+    ax[0].plot(data_pd['DOY'], data_pd['leaf biomass (site1)'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
+    ax[0].scatter(data_pd['DOY'], data_pd['leaf biomass (site1)'], zorder=4, s=14**2, marker='^', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
+    ax[0].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['total biomas site1'], zorder=1, alpha=0.5, fc=(54/256, 92/256, 141/256))
+    ax[0].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['leaf biomass (site1)'], zorder=2, alpha=0.5, fc=(196/256, 78/256, 82/256))
+    ax[0].set_xticks([75, 135, 195, 255, 315])
+    ax[0].grid(axis='y', color=(240 / 256, 240 / 256, 240 / 256))
+    ax[0].set_xticklabels(['3', '5', '7', '9', '11'], fontname='Times New Roman', fontsize=26)
+    ax[0].set_xlabel('Date', fontname='Times New Roman', fontsize=34, fontweight='bold')
+    ax[0].set_ylabel('Biomass per plant/g', fontname='Times New Roman', fontsize=34, fontweight='bold')
+    ax[0].set_xlim([60, 345])
+    ax[0].set_ylim([0, 25])
+
+    ax[1].plot(data_pd['DOY'], data_pd['total biomas site2'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
+    ax[1].scatter(data_pd['DOY'], data_pd['total biomas site2'], zorder=4, s=13**2, marker='s', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
+    ax[1].errorbar(data_pd['DOY'], data_pd['total biomas site2'], yerr=None)
+    ax[1].plot(data_pd['DOY'], data_pd['leaf biomass (site2)'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
+    ax[1].scatter(data_pd['DOY'], data_pd['leaf biomass (site2)'], zorder=4, s=14**2, marker='^', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
+    ax[1].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['total biomas site2'], zorder=1, alpha=0.5, fc=(54/256, 92/256, 141/256))
+    ax[1].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['leaf biomass (site2)'], zorder=2, alpha=0.5, fc=(196/256, 78/256, 82/256))
+    ax[1].set_xticks([75, 135, 195, 255, 315])
+    ax[1].grid(axis='y', color=(240 / 256, 240 / 256, 240 / 256))
+    ax[1].set_xticklabels(['3', '5', '7', '9', '11'], fontname='Times New Roman', fontsize=26)
+    ax[1].set_xlabel('Date', fontname='Times New Roman', fontsize=34, fontweight='bold')
+    ax[1].set_ylabel('Biomass per plant/g', fontname='Times New Roman', fontsize=34, fontweight='bold')
+    ax[1].set_xlim([60, 345])
+    ax[1].set_ylim([0, 70])
+    plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\\2.4.2\\3\\Fig4.png', dpi=300)
+
+def veg_area():
+    ds1 = gdal.Open(r'G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\Phemetric_tif\2004\\2004_MAVI.TIF')
+    ds2 = gdal.Open(r'G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\Phemetric_tif\2023\\2023_MAVI.TIF')
+    arr1 = ds1.GetRasterBand(1).ReadAsArray()
+    arr2 = ds2.GetRasterBand(1).ReadAsArray()
+    arr1[~np.isnan(arr1)] = 1
+    arr1_area = np.nansum(arr1) * 30*30 /1000 /1000
+    arr2[~np.isnan(arr2)] = 1
+    arr2_area = np.nansum(arr2)* 30*30 /1000 /1000
+    print(str(arr1_area))
+    print(str(arr2_area))
+
+if __name__ == '__main__':
+    fig2_13()

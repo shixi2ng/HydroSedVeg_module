@@ -856,7 +856,7 @@ def ep_fig2_func():
     ax[0].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['leaf biomass (site1)'], zorder=2, alpha=0.5, fc=(196/256, 78/256, 82/256))
     ax[0].set_xticks([75, 135, 195, 255, 315])
     ax[0].grid(axis='y', color=(240 / 256, 240 / 256, 240 / 256))
-    ax[0].set_xticklabels(['March', 'May', 'July', 'September', 'November'], fontname='Times New Roman', fontsize=26)
+    ax[0].set_xticklabels(['3', '5', '7', '9', '11'], fontname='Times New Roman', fontsize=26)
     ax[0].set_xlabel('Date', fontname='Times New Roman', fontsize=34, fontweight='bold')
     ax[0].set_ylabel('Biomass per plant/g', fontname='Times New Roman', fontsize=34, fontweight='bold')
     ax[0].set_xlim([60, 345])
@@ -871,12 +871,12 @@ def ep_fig2_func():
     ax[1].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['leaf biomass (site2)'], zorder=2, alpha=0.5, fc=(196/256, 78/256, 82/256))
     ax[1].set_xticks([75, 135, 195, 255, 315])
     ax[1].grid(axis='y', color=(240 / 256, 240 / 256, 240 / 256))
-    ax[1].set_xticklabels(['March', 'May', 'July', 'September', 'November'], fontname='Times New Roman', fontsize=26)
+    ax[1].set_xticklabels(['3', '5', '7', '9', '11'], fontname='Times New Roman', fontsize=26)
     ax[1].set_xlabel('Date', fontname='Times New Roman', fontsize=34, fontweight='bold')
     ax[1].set_ylabel('Biomass per plant/g', fontname='Times New Roman', fontsize=34, fontweight='bold')
     ax[1].set_xlim([60, 345])
     ax[1].set_ylim([0, 70])
-    plt.savefig(f'G:\\A_Landsat_veg\\Paper\\Fig4\\Fig4.png', dpi=300)
+    plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\\2.4.2\\3\\Fig4.png', dpi=300)
 
 
 def fig15_func():

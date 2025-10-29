@@ -2375,8 +2375,8 @@ def fig15_func():
         else:
             q[_] = q[_] + 0.03 * ln_temp(t[_], p0[0], p0[1], p0[2], p0[3])
 
-    ax[0].scatter(data_pd['AGBD'], q, s=12 ** 2, marker='o', edgecolors=(0 / 256, 0 / 256, 0 / 256),
-                  facecolor=(1, 1, 1), alpha=1, linewidths=2, zorder=4)
+    ax[0].scatter(data_pd['AGBD'], q, s=8 ** 2, marker='o', edgecolors=(0 / 256, 0 / 256, 0 / 256),
+                  facecolor=(1, 1, 1), alpha=1, linewidths=1, zorder=4)
     ax[0].plot(x, ln_temp(x, p0[0], p0[1], p0[2], p0[3]), c=(0.8, 0, 0), lw=3, ls='--', zorder=3)
     ax[0].fill_between(x, ln_temp(x, p0[0], p0[1], p0[2], p0[3]) * 0.8,
                        ln_temp(x, p0[0], p0[1], p0[2], p0[3]) * 1.2, zorder=1, linewidth=1, ls='-.', ec=(0.8, 0, 0),
@@ -2385,12 +2385,15 @@ def fig15_func():
     ax[0].set_ylim([0, 0.55])
     ax[0].set_xlabel('Biomass derived from GEDI', fontname='Times New Roman', fontsize=28, fontweight='bold')
     ax[0].set_ylabel('Landsat-extracted MAVI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[0].set_xticks([0, 50, 100, 150, 200, 250, 300, 350, 400])
+    ax[0].set_xticklabels(['0', '5', '10', '15', '20', '25', '30', '35', '40'], fontname='Times New Roman', fontsize=24)
     predicted_y_data = ln_temp(np.array(data_pd['AGBD']), p0[0], p0[1], p0[2], p0[3])
+    print(str([p0[0], p0[1], p0[2], p0[3]]))
     x_data = q
     r_square1 = (1 - np.nansum((predicted_y_data - x_data) ** 2) / np.nansum((x_data - np.nanmean(x_data)) ** 2))
 
-    ax[1].scatter(data_pd['AGBD'], data_pd['S2phemetric_peak_vi'], s=13 ** 2, marker='^',
-                  edgecolors=(0 / 256, 0 / 256, 0 / 256), facecolor=(1, 1, 1), alpha=1, linewidths=2, zorder=4)
+    ax[1].scatter(data_pd['AGBD'], data_pd['S2phemetric_peak_vi'], s=8 ** 2, marker='^',
+                  edgecolors=(0 / 256, 0 / 256, 0 / 256), facecolor=(1, 1, 1), alpha=1, linewidths=1, zorder=4)
     ax[1].plot(x, ln_temp(x, p1[0], p1[1], p1[2], p1[3]), c=(0.8, 0, 0), lw=3, ls='--', zorder=3)
     ax[1].fill_between(x, ln_temp(x, p1[0], p1[1], p1[2], p1[3]) * 0.8,
                        ln_temp(x, p1[0], p1[1], p1[2], p1[3]) * 1.2, zorder=1, linewidth=1, ls='-.', ec=(0.8, 0, 0),
@@ -2399,12 +2402,15 @@ def fig15_func():
     ax[1].set_ylim([0, 0.55])
     ax[1].set_xlabel('Biomass derived from GEDI', fontname='Times New Roman', fontsize=28, fontweight='bold')
     ax[1].set_ylabel('Landsat-extracted peak VI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[1].set_xticks([0, 50, 100, 150, 200, 250, 300, 350, 400])
+    ax[1].set_xticklabels(['0', '5', '10', '15', '20', '25', '30', '35', '40'], fontname='Times New Roman', fontsize=24)
+    print(str([p1[0], p1[1], p1[2], p1[3]]))
     predicted_y_data = ln_temp(np.array(data_pd['AGBD']), p1[0], p1[1], p1[2], p1[3])
     x_data = np.array(data_pd['S2phemetric_peak_vi'])
     r_square2 = (1 - np.nansum((predicted_y_data - x_data) ** 2) / np.nansum((x_data - np.nanmean(x_data)) ** 2))
     print(r_square1)
     print(r_square2)
-    plt.savefig(f'G:\\A_Landsat_Floodplain_veg\\Paper\\Fig15\\Fig15.png', dpi=300)
+    plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\\2.4.2\\6\\Fig15.png', dpi=300)
 
 
 def fig13_func():
@@ -2921,7 +2927,8 @@ def fig_wl_func():
         plt.close()
 
 
-fig11nc3_func()
+fig15_func()
+# fig11nc3_func()
 # fig11nc_func()
 # fig_wl_func()
 # fig12_nc_func()

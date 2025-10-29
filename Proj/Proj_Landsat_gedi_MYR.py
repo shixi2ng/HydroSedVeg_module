@@ -15,10 +15,11 @@ if __name__ == '__main__':
     #     print(str(a))
 
     # Link simulated gedi df with RSdc
-    index_list = [f'{_}_noninun' for _ in ['OSAVI']]
+    index_list = [f'{_}_noninun' for _ in ['OSAVI', 'MNDWI', 'TCGREENESS', 'SVVI', 'NIR', 'GREEN', 'RED', 'SWIR', 'SWIR2', 'BLUE']]
     dc_temp_dic = [Landsat_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\{index_}_datacube\\') for index_ in index_list]
     rs_dc_temp = RS_dcs(*dc_temp_dic)
-    rs_dc_temp.process_CCDC_res('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\CCDC\\output\\pixel_csv\\')
+    # rs_dc_temp.CCDC(index_list)
+    rs_dc_temp.process_CCDC_res('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\CCDC\\output\\pixel_csv\\', [_ for _ in range(1986, 2024)])
 
     # # Calculate the biomass
     # for _ in range(2000, 2024):
@@ -40,7 +41,8 @@ if __name__ == '__main__':
     #         json.dump(dc_metadata, js_temp)
 
     # # Inundation detection
-    # Landsat_WI_temp = Landsat_dc('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\MNDWI_datacube')
+    # Landsat_WI_temp = Landsat_dc('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\OSAVI_noninun_datacube')
+    # Landsat_WI_temp.print_stacked_Zvalue()
     # Landsat_dcs = RS_dcs(Landsat_WI_temp)
     # Landsat_dcs.inundation_detection('DT', 'MNDWI', 'Landsat', DT_std_fig_construction=False)
 
@@ -50,6 +52,7 @@ if __name__ == '__main__':
     #     Landsat_dcs = RS_dcs(Landsat_inun_temp, Landsat_index_temp)
     #     Landsat_dcs.inundation_removal(index, 'DT', 'Landsat', append_new_dc=False)
     #
+
     # pheme_list = []
     # for year in [str(_) for _ in range(1987,2024)]:
     #     pheme_list.append(Phemetric_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\{year}\\'))

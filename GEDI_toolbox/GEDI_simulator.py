@@ -85,60 +85,61 @@ def run_GEDI_simulator_pipeline(uav_las_file: str, output_folder: str, coord_lis
 
 
 def extract_metric(filepath, metric_name):
-    metric_column_index = {
-    "rhGauss90": 31,
-    "rhGauss95": 32,
-    "rhGauss100": 33,
-    "rhMax90": 53,
-    "rhMax95": 54,
-    "rhMax100": 55,
-    "rhInfl90": 74,
-    "rhInfl95": 75,
-    "rhInfl100": 76}
-    index = metric_column_index.get(metric_name)
-    if index is None:
-        raise ValueError(f"未找到指标 {metric_name} 对应的列号，请检查字段名是否正确。")
+    index = None
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('#'):
+                    # 提取带有字段名的注释行
+                    header_line = line.strip('# \n')
+                    fields = header_line.split(', ')
+                    col_index_map = {}
+                    for i, field in enumerate(fields):
+                        field = field.strip()
+                        if ' ' in field:
+                            _, name = field.split(' ', 1)
+                            col_index_map[name.strip()] = i
+                    if metric_name in col_index_map:
+                        index = col_index_map[metric_name]
+                    else:
+                        raise ValueError(f"文件中未找到指标 {metric_name}。")
+                    break  # 找到 header 就退出
+
+            # 再次遍历，读取数据行
             for line in f:
                 if line.strip() == '' or line.startswith('#'):
                     continue
                 parts = line.strip().split()
-                if len(parts) > index:
+                if index is not None and len(parts) > index:
                     return float(parts[index])
+
     except Exception as e:
-        print(f"[!] 读取文件 {filepath} 失败：{e}")
+        print(f"读取文件 {filepath} 失败：{e}")
     return None
 
 if __name__ == '__main__':
     csv_file = pd.read_excel('G:\A_GEDI_Floodplain_vegh\GEDI_simulator\\gedi_simulator.xlsx')
-    for _ in range(csv_file.shape[0]):
-        transformer = Transformer.from_crs("EPSG:4326", "EPSG:4547", always_xy=True)
-        x_utm, y_utm = csv_file['Longitude'][_], csv_file['Latitude'][_]
-        x_gk, y_gk = transformer.transform(x_utm, y_utm)
-        gedi_id = csv_file['FID'][_]
-        run_GEDI_simulator_pipeline('G:\A_GEDI_Floodplain_vegh\Airborne_LiDAR\\hankou.las',
-                                    'G:\\A_GEDI_Floodplain_vegh\\Airborne_LiDAR\\Output\\',
-                                    [x_gk, y_gk], gedi_id)
     #
     # 多指标提取部分
     all_metrics = {
-        "RHuav90": "rhGauss90",
-        "RHuav95": "rhGauss95",
-        "RHuav100": "rhGauss100",
-        "RHmax90": "rhMax90",
-        "RHmax95": "rhMax95",
-        "RHmax100": "rhMax100",
-        "RHinf90": "rhInfl90",
-        "RHinf95": "rhInfl95",
-        "RHinf100": "rhInfl100"
+        "RHuav90": "rhGauss 90",
+        "RHuav95": "rhGauss 95",
+        "RHuav98": "rhGauss 98",
+        "RHuav100": "rhGauss 100",
+        "RHmax90": "rhMax 90",
+        "RHmax95": "rhMax 95",
+        "RHmax98": "rhMax 98",
+        "RHmax100": "rhMax 100",
+        "RHinf90": "rhInfl 90",
+        "RHinf95": "rhInfl 95",
+        "RHinf98": "rhInfl 98",
+        "RHinf100": "rhInfl 100",
     }
 
     for new_col, metric_name in all_metrics.items():
         values = []
         for fid in csv_file['FID']:
-            wave_path = os.path.join(
-                r'G:\A_GEDI_Floodplain_vegh\Airborne_LiDAR\Output\metric\\', f"GEDI{fid}_.metric.txt")
+            wave_path = os.path.join(r'G:\A_GEDI_Floodplain_vegh\Airborne_LiDAR\Output\metric\\', f"GEDI{fid}_.metric.txt")
             if os.path.exists(wave_path):
                 value = extract_metric(wave_path, metric_name)
                 values.append(value)
@@ -147,5 +148,4 @@ if __name__ == '__main__':
         csv_file[new_col] = values
 
     # 保存为最终汇总结果
-    csv_file.to_csv(
-        r'G:\A_GEDI_Floodplain_vegh\Airborne_LiDAR\Output\rhuav_metrics_summary.csv', index=False)
+    csv_file.to_csv(r'G:\A_GEDI_Floodplain_vegh\Airborne_LiDAR\Output\rhuav_metrics_summary.csv', index=False)
