@@ -91,7 +91,7 @@ def generate_inundation_indicator(namelist, datacube_list, dem_arr, dem_nodata, 
     inun_max_waterlevel = np.zeros([dem_arr.shape[0], dem_arr.shape[1]])
 
     for _ in namelist:
-        ds = gdal.Open(f'{output_path}\\inundation_dailyfile\\{str(_)}.tif')
+        ds = gdal.Open(f'{output_path}\\daily_inundation_file\\{str(_)}.tif')
         arr = ds.GetRasterBand(1).ReadAsArray()
         arr[arr == 255] = 0
 
@@ -131,6 +131,7 @@ def concept_inundation_model(wl_nm, wl_sm, demfile, thalweg, output_filepath):
                 wl_sm_ = np.column_stack((wl_sm_, np.zeros([wl_sm_.shape[0], dem_file_arr.shape[1] - wl_sm_.shape[1]])))
 
             inun_level = np.array(wl_sm_ - dem_file_arr).astype(np.float32)
+            inun_level[dem_file_arr == -100] = np.nan
             inun_arr = np.array(wl_sm_ > dem_file_arr).astype(np.uint8)
             bf.create_folder(f'{output_filepath}\\inundation_temp\\')
             bf.write_raster(dem_file_ds, inun_arr, f'{output_filepath}\\inundation_temp\\', str(wl_nm_) + '.tif', raster_datatype=gdal.GDT_Byte)

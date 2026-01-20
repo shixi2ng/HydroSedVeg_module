@@ -1,8 +1,8 @@
 from importlib.metadata import metadata
-
 from scipy import sparse as sm
 from .utils import *
 from NDsm import NDSparseMatrix
+import datetime
 
 
 class Denv_dc(object):
@@ -67,7 +67,10 @@ class Denv_dc(object):
 
                     for dic_name in self._fund_factor:
                         if dic_name not in dc_metadata.keys():
-                            raise Exception(f'The {dic_name} is not in the dc metadata, double check!')
+                            if dic_name == 'Nodata_value' and dc_metadata.get('sparse_matrix', False):
+                                self.Nodata_value = 0
+                            else:
+                                raise Exception(f'The {dic_name} is not in the dc metadata, double check!')
                         else:
                             self.__dict__[dic_name] = dc_metadata[dic_name]
 
@@ -308,3 +311,75 @@ class Denv_dc(object):
 
     def denv_comparison(self):
         pass
+
+    def compute_annual_mean(self, output_path: str = None):
+
+        start_time = time.time()
+        print(f"Start calculating annual mean for \033[1;31m{self.index}\033[0m in the \033[1;34m{self.ROI_name}\033[0m")
+
+        if output_path is None:
+            output_path = Path(f"{self.Denv_dc_filepath}annual_mean\\").path_name
+        else:
+            output_path = Path(output_path).path_name
+
+        create_folder(output_path) if not os.path.exists(output_path) else None
+
+        if self.sparse_matrix and isinstance(self.dc, NDSparseMatrix):
+            rows, cols, _ = self.dc.shape
+            sum_arr = np.zeros((rows, cols), dtype=np.float64)
+            count_arr = np.zeros((rows, cols), dtype=np.uint32)
+
+            for sm_name in self.dc.SM_namelist:
+                layer = self.dc.SM_group[sm_name]
+                if not sm.issparse(layer):
+                    raise TypeError('Sparse matrix flag is set, but layer is not sparse')
+
+                layer_coo = layer.tocoo()
+                data = layer_coo.data.astype(np.float64)
+                row_idx = layer_coo.row
+                col_idx = layer_coo.col
+
+                if self.Nodata_value is not None:
+                    valid_mask = data != self.Nodata_value
+                    data = data[valid_mask]
+                    row_idx = row_idx[valid_mask]
+                    col_idx = col_idx[valid_mask]
+
+                np.add.at(sum_arr, (row_idx, col_idx), data)
+                np.add.at(count_arr, (row_idx, col_idx), 1)
+
+            with np.errstate(invalid='ignore', divide='ignore'):
+                annual_mean_arr = sum_arr / count_arr
+
+            if self.Nodata_value is not None:
+                annual_mean_arr[count_arr == 0] = self.Nodata_value
+        else:
+            # Load the full datacube as a numpy array
+            dc_array = self.dc[:, :, :]
+            if dc_array.ndim == 2:
+                dc_array = dc_array[:, :, np.newaxis]
+
+            dc_array = dc_array.astype(np.float32)
+            if self.Nodata_value is not None:
+                dc_array[dc_array == self.Nodata_value] = np.nan
+
+            annual_mean_arr = np.nanmean(dc_array, axis=2)
+            if self.Nodata_value is not None:
+                annual_mean_arr[np.isnan(annual_mean_arr)] = self.Nodata_value
+
+        annual_mean_basename = f"{self.timerange}_annual_mean_{self.index}"
+
+        try:
+            roi_ds = gdal.Open('G:\A_Landsat_Floodplain_veg\ROI_map\\floodplain_2020_map.TIF')
+            write_raster(
+                roi_ds,
+                annual_mean_arr,
+                output_path,
+                f"{annual_mean_basename}.tif",
+                raster_datatype=gdal.GDT_Float32,
+                nodatavalue=self.Nodata_value,
+            )
+        except Exception as e:
+            print(f"Unable to export GeoTIFF for annual mean due to: {e}")
+
+        print(f"Finish calculating annual mean for \033[1;31m{self.index}\033[0m using \033[1;31m{str(time.time() - start_time)}\033[0ms")

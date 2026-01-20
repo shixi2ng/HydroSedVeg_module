@@ -1,12 +1,21 @@
 import json
 import shutil
 
+import numpy as np
+
 from RSDatacube.RSdc import *
 from GEDI_toolbox.GEDI_main import *
 import basic_function as bf
 from RF.VHM import VHM
 
 if __name__ == '__main__':
+
+    for denv_ in ['GST']:
+        dc_temp_dic = []
+        for year in [str(_) for _ in range(1986, 2024)]:
+            dc = Denv_dc(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\floodplain_2020_UTM_Denv_datacube\\{denv_}\\{year}\\')
+            bf.create_folder(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\annual_mean\\{denv_}\\')
+            dc.compute_annual_mean(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\annual_mean\\{denv_}\\')
 
     # a = Landsat_dc('G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\Inundation_DT_datacube')
     # b = 0
@@ -15,11 +24,11 @@ if __name__ == '__main__':
     #     print(str(a))
 
     # Link simulated gedi df with RSdc
-    index_list = [f'{_}_noninun' for _ in ['OSAVI', 'MNDWI', 'TCGREENESS', 'SVVI', 'NIR', 'GREEN', 'RED', 'SWIR', 'SWIR2', 'BLUE']]
-    dc_temp_dic = [Landsat_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\{index_}_datacube\\') for index_ in index_list]
-    rs_dc_temp = RS_dcs(*dc_temp_dic)
-    # rs_dc_temp.CCDC(index_list)
-    rs_dc_temp.process_CCDC_res('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\CCDC\\output\\pixel_csv\\', [_ for _ in range(1986, 2024)])
+    # index_list = [f'{_}_noninun' for _ in ['OSAVI', 'MNDWI', 'TCGREENESS', 'SVVI', 'NIR', 'GREEN', 'RED', 'SWIR', 'SWIR2', 'BLUE']]
+    # dc_temp_dic = [Landsat_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\{index_}_datacube\\') for index_ in index_list]
+    # rs_dc_temp = RS_dcs(*dc_temp_dic)
+    # # rs_dc_temp.CCDC(index_list)
+    # rs_dc_temp.process_CCDC_res('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\CCDC\\output\\pixel_csv\\', [_ for _ in range(1986, 2024)])
 
     # # Calculate the biomass
     # for _ in range(2000, 2024):
@@ -105,11 +114,27 @@ if __name__ == '__main__':
     #     Landsat_dcs = None
     #
     # # Link high quality GEDI data with Phedc
+
+    # dc_temp_dic = []
+    # c = 10000
+    # d=-10000
+    # q = []
+    # for year in [str(_) for _ in range(1987, 2024)]:
+    #     a = Phemetric_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\{year}\\')
+    #     B = a.dc.SM_group[f'{str(year)}_MAVI'].toarray()
+    #     B[B == 0] = np.nan
+    #     aa = B.flatten()
+    #     aa = aa[~np.isnan(aa)]
+    #     q.extend(aa.tolist())
+    #     c = min(c, np.nanmin(B))
+    #     d = max(d, np.nanmax(B))
+    #     pass
+    # pass
     # dc_temp_dic = []
     # for year in [str(_) for _ in range(2018, 2024)]:
     #     dc_temp_dic.append(Phemetric_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\{year}\\'))
     # rsdc_temp = RS_dcs(*dc_temp_dic)
-    # rsdc_temp.link_GEDI_Phemedc(GEDI_df('G:\\A_GEDI_Floodplain_vegh\\GEDI_MYR\\L2_vegh\\floodplain_2020_high_quality.xlsx'), ['DR', 'DR2', 'EOS', 'GR', 'SOS', 'peak_vi', 'peak_doy', 'trough_vi', 'MAVI'], spatial_interpolate_method=['area_average', 'focal'],)
+    # rsdc_temp.link_GEDI_Phemedc(GEDI_df('G:\\A_Landsat_Floodplain_veg\\GEDI_L4A\\Result\\floodplain_2020_high_quality.xlsx'), ['MAVI'], spatial_interpolate_method=['area_average', 'focal'],)
 
     # # Link high quality GEDI data with RSdc
     # dc_temp_dic = []
@@ -144,7 +169,7 @@ if __name__ == '__main__':
 
 
     ###############################################################################
-    # # Simulate gedi df
+    # # # Simulate gedi df
     # for year in [str(_) for _ in range(1987, 2024)]:
     #     dcs_temp = RS_dcs(Phemetric_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\{year}\\'))
     #     dcs_temp.simulate_GEDI_df([f'peak_{year}'], 'G:\\A_GEDI_Floodplain_vegh\\GEDI_MYR\\L2_vegh\\')
@@ -156,7 +181,7 @@ if __name__ == '__main__':
     #     rsdc_temp = RS_dcs(*dc_temp_dic)
     #     rsdc_temp.link_GEDI_Phemedc(GEDI_df(f'G:\\A_GEDI_Floodplain_vegh\\GEDI_MYR\\L2_vegh\\simulated_GEDI_df\\peak_{year}_simulated.csv'), ['DR', 'DR2', 'EOS', 'GR', 'SOS', 'peak_vi', 'peak_doy', 'trough_vi', 'MAVI'], spatial_interpolate_method=['nearest_neighbor'],)
     #
-    # # # Link simulated gedi df with RSdc
+    # # # # Link simulated gedi df with RSdc
     # index_list = [f'{_}_noninun' for _ in ['OSAVI', 'GREEN', 'BLUE', 'RED', 'SWIR', 'SWIR2', 'NIR', 'SVVI', 'TCGREENESS']]
     # for index_ in index_list:
     #     dc_temp_dic = []

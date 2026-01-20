@@ -9,7 +9,7 @@ from GEDI_toolbox.GEDI_main import GEDI_df
 import copy
 import xgboost as xgb
 import cupy as cp
-import shap
+
 import time
 from sklearn.linear_model import Ridge
 from sklearn.inspection import permutation_importance

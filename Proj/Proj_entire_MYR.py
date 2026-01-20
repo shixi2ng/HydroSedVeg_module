@@ -74,6 +74,13 @@ if __name__ == '__main__':
     # veg_diff_arr[veg_diff_arr == 0] = -200
     # bf.write_raster(veg_pre_ds, veg_diff_arr, 'G:\\A_Landsat_Floodplain_veg\\Paper\\Fig10\\peak_vi_var\\', 'veg_diff.TIF')
 
+    # pre_ds = gdal.Open('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_pretgd.TIF')
+    # post_ds = gdal.Open('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_posttgd.TIF')
+    # pre_arr = pre_ds.GetRasterBand(1).ReadAsArray()
+    # post_arr = post_ds.GetRasterBand(1).ReadAsArray()
+    # mid_arr = (pre_arr + post_arr) / 2
+    # bf.write_raster(pre_ds, mid_arr, 'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\', 'ele_mid.TIF')
+
     # refine dem
     thal1 = Thalweg()
     thal1 = thal1.load_geojson('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_geojson\\thelwag.json')
@@ -104,17 +111,23 @@ if __name__ == '__main__':
     #     pheme_dc.calculate_phemetrics(['TSVI', 'peak_vi', 'MAVI'])
     #     pheme_dc.dc2tif()
 
-    for year in range(1988, 2004):
+    for year in range(1995, 2024):
         year = int(year)
         hc = HydroDatacube()
         hc.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
-        hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_pretgd.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=False)
+        hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_mid.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\predamwl_middamdem\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=True)
 
-    for year in range(2004, 2024):
-        year = int(year)
-        hc = HydroDatacube()
-        hc.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
-        hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_posttgd.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=False)
+    # for year in range(1988, 2004):
+    #     year = int(year)
+    #     hc = HydroDatacube()
+    #     hc.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
+    #     hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_pretgd.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=False)
+    #
+    # for year in range(2004, 2024):
+    #     year = int(year)
+    #     hc = HydroDatacube()
+    #     hc.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
+    #     hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_posttgd.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=False)
 
     # Landsat_inun_temp = Landsat_dc('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\Inundation_DT_datacube')
     # hyspo = Flood_freq_based_hyspometry_method([2003], work_env='G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Annual_refined_dem\\')

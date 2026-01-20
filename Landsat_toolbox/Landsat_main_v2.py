@@ -503,7 +503,7 @@ class Landsat_l2_ds(object):
                 self._index_exprs_dic = index_exprs.index_dic
 
             elif index in self._all_supported_index_list:
-                pass
+                self._index_exprs_dic = index_exprs.index_dic
 
             else:
                 raise NameError(f'The {index} is not a valid index or the expression is wrong')

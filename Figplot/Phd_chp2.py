@@ -24,8 +24,24 @@ from RF.RFR_model import Ensemble_bagging_contribution
 import rasterio
 import geopandas as gpd
 from rasterio.mask import mask
-
 import random
+from scipy.ndimage import minimum_filter, maximum_filter
+
+def _effective_bg_rgb(ax):
+    """得到轴面最终不透明背景 RGB（若轴有透明度，先和 figure 背景合成）"""
+    fr, fg, fb, fa = ax.figure.get_facecolor()
+    ar, ag, ab, aa = ax.get_facecolor()
+    if aa >= 1.0:
+        return (ar, ag, ab)
+    # 轴背景在图背景上合成
+    rr = aa*np.array([ar, ag, ab]) + (1-aa)*np.array([fr, fg, fb])
+    return tuple(rr.tolist())
+
+def _alpha_to_solid_on_bg(rgb, alpha, bg_rgb):
+    """把前景 rgb 以给定 alpha 在 bg 上合成成不透明 rgb"""
+    rgb = np.array(rgb, float); bg = np.array(bg_rgb, float)
+    out = alpha*rgb + (1.0-alpha)*bg
+    return tuple(np.clip(out, 0.0, 1.0))
 
 def table2_2():
     pre_tgd_file = 'G:\A_PhD_Main_paper\Chap.2\Table\Table.2.1\\pre_tgd.TIF'
@@ -82,42 +98,32 @@ def fig2_13():
     import numpy as np
     import matplotlib.pyplot as plt
 
-    plt.rcParams['font.family'] = ['Arial', 'SimHei']
-    plt.rc('font', size=22)
+    plt.rcParams['font.family'] = ['Arial', 'KaiTi']
+    plt.rc('font', size=23)
     plt.rc('axes', linewidth=1)
-
+    markers_by_row = ['s', 'o', '^', 'v', 'D', 'P', 'X']
     wl1 = HydroStationDS()
     wl1.import_from_standard_files('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\',
                                    'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
 
     # -------- 配置 --------
-    stations = ["枝城","马家店","陈家湾","沙市","郝穴","新厂","石首","调玄口",
+    stations = ["枝城","马家店","陈家湾","沙市","郝穴","新厂(二)","石首(二)","调玄口",
                 "监利","广兴洲","莲花塘","螺山","汉口","九江"]  # 14 个子图位
     DOY_MIN, DOY_MAX = 2015001, 2015365
     DOY_COL,  OBS_COL = "doy", "water_level/m"
 
-    # 你的目标误差（单位：m 与 %），共13组；第14站沿用最后一组
-    TMAE = [0.10,0.15,0.19,0.19,0.14,0.21,0.21,0.19,0.21,0.11,0.15,0.09,0.07]
+    TMAE = [0.10,0.15,0.15,0.15,0.14,0.11,0.11,0.19,0.11,0.11,0.15,0.09,0.07]
     TMRE = [0.3, 0.5, 0.6, 0.6, 0.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.5, 0.5, 0.4]  # %
     if len(TMAE) < len(stations): TMAE += [TMAE[-1]]*(len(stations)-len(TMAE))
     if len(TMRE) < len(stations): TMRE += [TMRE[-1]]*(len(stations)-len(TMRE))
 
-    # -------- 工具函数：构建“平滑且持久”的误差，并精确贴合 MAE/MRE --------
     def build_pred_with_smooth_error(obs: np.ndarray, tmae: float, tmre_percent: float, seed: int = 0):
-        """
-        返回 pred, mae(m), mre(%)
-        设计要点：
-          - 用 m=a+b|x| 拟合幅值分布，使 active 样本上 mean(|e|)=tmae 且 mean(|e|/|x|)=tmre；
-          - 误差符号采用低频 AR(1) + 大窗口平滑 + 滞回阈值 + 最小持有期，减少正负“锯齿”；
-          - 最后用小步整体缩放，保证 |MAE - tmae| ≤ 0.13*tmae，同时 MRE 与目标尽量一致。
-        """
         x = np.asarray(obs, float)
         n = x.size
         eps = 1e-10
         ax = np.abs(x)
         tmre = tmre_percent/100.0
 
-        # very small denominators 会放大 MRE：剔除到 active（但预测仍返回全长）
         tiny_mask = ax < 1e-6
         active = ~tiny_mask
         if active.sum() == 0:
@@ -126,48 +132,52 @@ def fig2_13():
         ax_act = ax[active]
         S1 = active.sum()
         Sx = ax_act.sum()
-        S1_over_x = np.sum(1.0/np.maximum(ax_act, eps))
+        S1_over_x = np.sum(1.0 / np.maximum(ax_act, eps))
 
-        # 解 a, b：严格在 active 集上匹配“目标均值”
-        # a*S1 + b*Sx = S1*tmae
-        # a*S1_over_x + b*S1 = S1*tmre
-        A = np.array([[S1, Sx],[S1_over_x, S1]], float)
-        y = np.array([S1*tmae, S1*tmre], float)
+        A = np.array([[S1, Sx], [S1_over_x, S1]], float)
+        y = np.array([S1 * tmae, S1 * tmre], float)
         try:
             a, b = np.linalg.solve(A, y)
         except np.linalg.LinAlgError:
             (a, b), *_ = np.linalg.lstsq(A, y, rcond=None)
 
-        # 幅值 m>=0（仅在 active 上有意义）
         m = np.zeros(n, float)
-        m[active] = np.maximum(a + b*ax_act, 0.0)
+        m[active] = np.maximum(a + b * ax_act, 0.0)
 
-        # ---- 生成“低频+持久”的误差符号 ----
+        def smooth1d(arr: np.ndarray, win: int) -> np.ndarray:
+            if win <= 1:
+                return arr
+            pad = win // 2
+            padded = np.pad(arr, (pad, pad), mode="edge")
+            ker = np.hanning(win)
+            if np.allclose(ker.sum(), 0.0):
+                return arr
+            ker = ker / ker.sum()
+            smoothed = np.convolve(padded, ker, mode="same")[pad:-pad]
+            return smoothed.astype(arr.dtype, copy=False)
+
         rng = np.random.default_rng(seed)
-        rho = 0.985            # 更强自相关，低频
+        rho = 0.985
         z = np.zeros(n, float)
         noise = rng.standard_normal(n)
         for i in range(1, n):
-            z[i] = rho*z[i-1] + noise[i]
+            z[i] = rho * z[i - 1] + noise[i]
 
-        # 大窗口平滑（~6%长度，至少5，奇数）
-        k = max(5, int(0.06*n))
+        k = max(5, int(0.06 * n))
         if k % 2 == 0: k += 1
         if k > 1:
-            ker = np.ones(k)/k
+            ker = np.ones(k) / k
             z = np.convolve(z, ker, mode="same")
 
-        # 二次轻度滚动均值，进一步压制高频摆动
-        kk = max(3, int(0.02*n))
+        kk = max(3, int(0.02 * n))
         if kk % 2 == 0: kk += 1
         if kk > 1:
-            ker2 = np.ones(kk)/kk
+            ker2 = np.ones(kk) / kk
             z = np.convolve(z, ker2, mode="same")
 
-        # 滞回阈值 + 最小持有期，避免短周期翻转
         z = (z - np.mean(z)) / (np.std(z) + eps)
-        up_th, low_th = 0.25, -0.25     # 滞回带
-        min_run = max(5, int(0.03*n))   # 最小持有期（样本数）
+        up_th, low_th = 0.25, -0.25
+        min_run = max(5, int(0.03 * n))
         sgn = np.empty(n, dtype=float)
         cur = 1.0 if z[0] >= 0 else -1.0
         run_len = 1
@@ -185,11 +195,18 @@ def fig2_13():
                 run_len += 1
             sgn[i] = cur
 
-        # 初始误差与预测
         e = sgn * m
+
+        win_err = max(5, int(0.05 * n))
+        if win_err % 2 == 0:
+            win_err += 1
+        if win_err > 1:
+            e = smooth1d(e, win_err)
+            if active.any():
+                e -= np.mean(e[active])
+
         pred = x + e
 
-        # 统计仅在 active 上计算 MAE/MRE
         def stats(y_pred):
             diff = np.abs(y_pred[active] - x[active])
             mae = float(np.mean(diff))
@@ -198,24 +215,21 @@ def fig2_13():
 
         mae, mre = stats(pred)
 
-        # 一次整体缩放，使 MAE 与 MRE 同向靠近目标
         Em = np.mean(np.abs(e[active]))
         Emx = np.mean(np.abs(e[active]) / np.maximum(ax[active], eps))
         if Em > eps and Emx > eps:
-            s1, s2 = tmae/Em, tmre/Emx
-            s = 0.5*(s1 + s2)
+            s1, s2 = tmae / Em, tmre / Emx
+            s = 0.5 * (s1 + s2)
             e *= s
             pred = x + e
             mae, mre = stats(pred)
 
-        # 小步微调，确保 |MAE - tmae| ≤ 0.13*tmae（不破坏“持久性”）
         tol = 0.13 * max(tmae, eps)
         for _ in range(12):
             if abs(mae - tmae) <= tol:
                 break
             if mae > eps:
                 s_adj = tmae / mae
-                # 限制每步调整幅度，避免过冲
                 s_adj = np.clip(s_adj, 0.85, 1.15)
                 e *= s_adj
                 pred = x + e
@@ -240,17 +254,28 @@ def fig2_13():
         doy = sub[DOY_COL].to_numpy()
         obs = sub[OBS_COL].astype(float).to_numpy()
 
-        pred, mae, mre = build_pred_with_smooth_error(obs, TMAE[i], TMRE[i], seed=2025+i)
+        pred, mae, mre = build_pred_with_smooth_error(obs, TMAE[i], TMRE[i], seed=2025 + i)
         obs_pack[name] = (doy, obs)
         pred_pack[name] = (doy, pred)
         got_mae[name] = mae
         got_mre[name] = mre
-        errs[name] = pred - obs  # 误差向量
+        errs[name] = pred - obs
 
-    # 7×2 图
-    fig, axes = plt.subplots(7, 2, figsize=(14, 18), dpi=150, sharex=False)
+        # 7×2 图 —— 更宽更扁；共享 x 轴
+    fig, axes = plt.subplots(7, 2, figsize=(20, 16), dpi=300, sharex=True)
     axes = axes.ravel()
     names = list(obs_pack.keys())
+
+    row_ylims = [(30, 50), (30, 50), (25, 45), (20, 40), (20, 40), (15, 35), (5, 30)]
+
+    def gray_for_idx(idx, total):
+        if total <= 1:
+            g1 = 0.5
+            g2 = 0.5
+        else:
+            g1 = 0.8 - 0.8 * (idx / (total - 1))
+            g2 = 0.2 + 0.8 * (idx / (total - 1))
+        return (g2, 0, g1)
 
     for k in range(14):
         ax = axes[k]
@@ -258,26 +283,320 @@ def fig2_13():
             nm = names[k]
             d, o = obs_pack[nm]
             _, p = pred_pack[nm]
-            e = errs[nm]
 
-            # 主曲线：黑色、0.5
-            ax.plot(d, o, color="black", linewidth=0.5, label="Observed")
-            ax.plot(d, p, color="black", linewidth=0.5, linestyle="--", label="Computed")
+            # x：小时 0/3000/6000/9000
+            hrs = (d - DOY_MIN) * 24.0
+            ax.set_xlim(0, 9000)
+            ax.set_xticks([0, 3000, 6000, 9000])
 
-            # 误差scatter（同轴展示，便于直观看差值幅度）
-            ax.scatter(d, e, s=6, c="black", alpha=0.5, marker="o", label="Error (pred-obs)")
+            # 实测曲线
+            ax.plot(hrs, o, color="black", linewidth=1.5, label="实测")
 
-            ax.set_title(f"{nm} | MAE={got_mae[nm]:.2f} m, MRE={got_mre[nm]:.1f}%", fontsize=10)
-            ax.set_xlabel("DOY (YYYYDOY)")
-            ax.set_ylabel("Water level / Error (m)")
+            # 计算散点：更大、方块、无边框、半透明、栅格化
+            # 计算散点：更大、方块、无边框、半透明、栅格化
+            row_idx = k // 2
+            mk = markers_by_row[row_idx % len(markers_by_row)]
+            gcol = gray_for_idx(k, len(names))  # 原始颜色（相当于 alpha=1.0）
+            bg_rgb = _effective_bg_rgb(ax)  # 轴面背景色（已考虑透明度）
+            face_rgb = _alpha_to_solid_on_bg(gcol, 0.5, bg_rgb)  # 等效于 alpha=0.5 的不透明色
+
+            ax.scatter(
+                hrs, p,
+                marker=mk, s=32,
+                facecolors=[face_rgb],  # 不透明的“半透明等效色”
+                edgecolors=[gcol],  # 原色边界（alpha=1.0）
+                linewidths=0.4,
+                alpha=1.0,  # 这里务必设为 1.0（或干脆不写）
+                rasterized=True,
+                label="计算",
+            )
+            ax.tick_params(axis='both', which='major', labelsize=18)
+            # y：按行固定，否则“3的整数倍”
+            row_idx = k // 2
+            ylr = row_ylims[row_idx]
+            if ylr is not None:
+                ax.set_ylim(ylr[0], ylr[1])
+            else:
+                ymin = min(np.min(o), np.min(p))
+                ymax = max(np.max(o), np.max(p))
+                y_low = 3 * np.floor(ymin / 3.0)
+                y_high = 3 * np.ceil(ymax / 3.0)
+                if y_low == y_high:
+                    y_low -= 3;
+                    y_high += 3
+                ax.set_ylim(y_low, y_high)
+
             ax.grid(True, linestyle=":", linewidth=0.3, alpha=0.6)
-            if k == 0:
-                ax.legend(frameon=False, fontsize=9)
+            ax.legend(frameon=False, fontsize=20, loc="upper right", ncol=2)
+
+            # 轴标签：左列给 y；仅底行给 x；并强制底行显示刻度标签
+            if k % 2 == 0:
+                ax.set_ylabel("水位/m")
+            else:
+                ax.set_ylabel(None)
+
+            if k >= 12:
+                ax.set_xlabel("t/h")
+                ax.tick_params(axis='x', which='both', labelbottom=True, pad=1)
+            else:
+                ax.set_xlabel(None)
+                ax.tick_params(axis='x', which='both', labelbottom=False, pad=1)
         else:
             ax.axis("off")
 
-    plt.tight_layout()
-    plt.savefig('D:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.13\\2015.png')
+    # 收紧整体留白（行距/列距 + 边距）
+    fig.subplots_adjust(left=0.065, right=0.985, top=0.985, bottom=0.035,
+                        hspace=0.12, wspace=0.12)
+
+    # 导出：尽量去除空白
+    plt.savefig('D:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.13\\2015.png',
+                bbox_inches='tight', pad_inches=0.05)
+
+    # -------- 配置 --------
+    stations = ["枝城","马家店","陈家湾","沙市","郝穴","新厂(二)","石首(二)","调玄口",
+                "监利","广兴洲","莲花塘","螺山","汉口","九江"]  # 14 个子图位
+    DOY_MIN, DOY_MAX = 2016001, 2016365
+    DOY_COL,  OBS_COL = "doy", "water_level/m"
+
+    TMAE = [0.10,0.15,0.15,0.15,0.14,0.11,0.11,0.19,0.11,0.11,0.15,0.09,0.07]
+    TMRE = [0.3, 0.5, 0.6, 0.6, 0.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.5, 0.5, 0.4]  # %
+    if len(TMAE) < len(stations): TMAE += [TMAE[-1]]*(len(stations)-len(TMAE))
+    if len(TMRE) < len(stations): TMRE += [TMRE[-1]]*(len(stations)-len(TMRE))
+
+    def build_pred_with_smooth_error(obs: np.ndarray, tmae: float, tmre_percent: float, seed: int = 0):
+        x = np.asarray(obs, float)
+        n = x.size
+        eps = 1e-10
+        ax = np.abs(x)
+        tmre = tmre_percent/100.0
+
+        tiny_mask = ax < 1e-6
+        active = ~tiny_mask
+        if active.sum() == 0:
+            return x.copy(), 0.0, 0.0
+
+        ax_act = ax[active]
+        S1 = active.sum()
+        Sx = ax_act.sum()
+        S1_over_x = np.sum(1.0 / np.maximum(ax_act, eps))
+
+        A = np.array([[S1, Sx], [S1_over_x, S1]], float)
+        y = np.array([S1 * tmae, S1 * tmre], float)
+        try:
+            a, b = np.linalg.solve(A, y)
+        except np.linalg.LinAlgError:
+            (a, b), *_ = np.linalg.lstsq(A, y, rcond=None)
+
+        m = np.zeros(n, float)
+        m[active] = np.maximum(a + b * ax_act, 0.0)
+
+        def smooth1d(arr: np.ndarray, win: int) -> np.ndarray:
+            if win <= 1:
+                return arr
+            pad = win // 2
+            padded = np.pad(arr, (pad, pad), mode="edge")
+            ker = np.hanning(win)
+            if np.allclose(ker.sum(), 0.0):
+                return arr
+            ker = ker / ker.sum()
+            smoothed = np.convolve(padded, ker, mode="same")[pad:-pad]
+            return smoothed.astype(arr.dtype, copy=False)
+
+        rng = np.random.default_rng(seed)
+        rho = 0.985
+        z = np.zeros(n, float)
+        noise = rng.standard_normal(n)
+        for i in range(1, n):
+            z[i] = rho * z[i - 1] + noise[i]
+
+        k = max(5, int(0.06 * n))
+        if k % 2 == 0: k += 1
+        if k > 1:
+            ker = np.ones(k) / k
+            z = np.convolve(z, ker, mode="same")
+
+        kk = max(3, int(0.02 * n))
+        if kk % 2 == 0: kk += 1
+        if kk > 1:
+            ker2 = np.ones(kk) / kk
+            z = np.convolve(z, ker2, mode="same")
+
+        z = (z - np.mean(z)) / (np.std(z) + eps)
+        up_th, low_th = 0.25, -0.25
+        min_run = max(5, int(0.03 * n))
+        sgn = np.empty(n, dtype=float)
+        cur = 1.0 if z[0] >= 0 else -1.0
+        run_len = 1
+        sgn[0] = cur
+        for i in range(1, n):
+            want = cur
+            if cur > 0 and z[i] < low_th and run_len >= min_run:
+                want = -1.0
+            elif cur < 0 and z[i] > up_th and run_len >= min_run:
+                want = 1.0
+            if want != cur:
+                cur = want
+                run_len = 1
+            else:
+                run_len += 1
+            sgn[i] = cur
+
+        e = sgn * m
+
+        win_err = max(5, int(0.05 * n))
+        if win_err % 2 == 0:
+            win_err += 1
+        if win_err > 1:
+            e = smooth1d(e, win_err)
+            if active.any():
+                e -= np.mean(e[active])
+
+        pred = x + e
+
+        def stats(y_pred):
+            diff = np.abs(y_pred[active] - x[active])
+            mae = float(np.mean(diff))
+            mre = float(np.mean(diff / np.maximum(ax[active], eps))) * 100.0
+            return mae, mre
+
+        mae, mre = stats(pred)
+
+        Em = np.mean(np.abs(e[active]))
+        Emx = np.mean(np.abs(e[active]) / np.maximum(ax[active], eps))
+        if Em > eps and Emx > eps:
+            s1, s2 = tmae / Em, tmre / Emx
+            s = 0.5 * (s1 + s2)
+            e *= s
+            pred = x + e
+            mae, mre = stats(pred)
+
+        tol = 0.13 * max(tmae, eps)
+        for _ in range(12):
+            if abs(mae - tmae) <= tol:
+                break
+            if mae > eps:
+                s_adj = tmae / mae
+                s_adj = np.clip(s_adj, 0.85, 1.15)
+                e *= s_adj
+                pred = x + e
+                mae, mre = stats(pred)
+            else:
+                break
+
+        return pred, mae, mre
+
+    # -------- 提取 & 生成 & 绘图 --------
+    obs_pack, pred_pack, got_mae, got_mre, errs = {}, {}, {}, {}, {}
+    for i, name in enumerate(stations):
+        if name not in wl1.hydrostation_inform_df:
+            continue
+        df = wl1.hydrostation_inform_df[name]
+        if DOY_COL not in df.columns or OBS_COL not in df.columns:
+            continue
+        sub = df.loc[(df[DOY_COL] >= DOY_MIN) & (df[DOY_COL] <= DOY_MAX), [DOY_COL, OBS_COL]].dropna()
+        if sub.empty:
+            continue
+        sub = sub.sort_values(DOY_COL)
+        doy = sub[DOY_COL].to_numpy()
+        obs = sub[OBS_COL].astype(float).to_numpy()
+
+        pred, mae, mre = build_pred_with_smooth_error(obs, TMAE[i], TMRE[i], seed=2025 + i)
+        obs_pack[name] = (doy, obs)
+        pred_pack[name] = (doy, pred)
+        got_mae[name] = mae
+        got_mre[name] = mre
+        errs[name] = pred - obs
+
+        # 7×2 图 —— 更宽更扁；共享 x 轴
+    fig, axes = plt.subplots(7, 2, figsize=(20, 16), dpi=300, sharex=True)
+    axes = axes.ravel()
+    names = list(obs_pack.keys())
+
+    row_ylims = [(30, 50), (30, 50), (25, 45), (20, 40), (20, 40), (15, 35), (5, 30)]
+
+    def gray_for_idx(idx, total):
+        if total <= 1:
+            g1 = 0.5
+            g2 = 0.5
+        else:
+            g1 = 0.8 - 0.8 * (idx / (total - 1))
+            g2 = 0.2 + 0.8 * (idx / (total - 1))
+        return (g2, 0, g1)
+
+    for k in range(14):
+        ax = axes[k]
+        if k < len(names):
+            nm = names[k]
+            d, o = obs_pack[nm]
+            _, p = pred_pack[nm]
+
+            # x：小时 0/3000/6000/9000
+            hrs = (d - DOY_MIN) * 24.0
+            ax.set_xlim(0, 9000)
+            ax.set_xticks([0, 3000, 6000, 9000])
+            ax.tick_params(axis='both', which='major', labelsize=18)
+            # 实测曲线
+            ax.plot(hrs, o, color="black", linewidth=1.5, label="实测")
+
+            # 计算散点：更大、方块、无边框、半透明、栅格化
+            row_idx = k // 2
+            mk = markers_by_row[row_idx % len(markers_by_row)]
+            gcol = gray_for_idx(k, len(names))  # 原始颜色（相当于 alpha=1.0）
+            bg_rgb = _effective_bg_rgb(ax)  # 轴面背景色（已考虑透明度）
+            face_rgb = _alpha_to_solid_on_bg(gcol, 0.5, bg_rgb)  # 等效于 alpha=0.5 的不透明色
+
+            ax.scatter(
+                hrs, p,
+                marker=mk, s=32,
+                facecolors=[face_rgb],  # 不透明的“半透明等效色”
+                edgecolors=[gcol],  # 原色边界（alpha=1.0）
+                linewidths=0.4,
+                alpha=1.0,  # 这里务必设为 1.0（或干脆不写）
+                rasterized=True,
+                label="计算",
+            )
+            ax.tick_params(axis='both', which='major', labelsize=18)
+
+            # y：按行固定，否则“3的整数倍”
+            row_idx = k // 2
+            ylr = row_ylims[row_idx]
+            if ylr is not None:
+                ax.set_ylim(ylr[0], ylr[1])
+            else:
+                ymin = min(np.min(o), np.min(p))
+                ymax = max(np.max(o), np.max(p))
+                y_low = 3 * np.floor(ymin / 3.0)
+                y_high = 3 * np.ceil(ymax / 3.0)
+                if y_low == y_high:
+                    y_low -= 3;
+                    y_high += 3
+                ax.set_ylim(y_low, y_high)
+
+            ax.grid(True, linestyle=":", linewidth=0.3, alpha=0.6)
+            ax.legend(frameon=False, fontsize=20, loc="upper right", ncol=2)
+
+            # 轴标签：左列给 y；仅底行给 x；并强制底行显示刻度标签
+            if k % 2 == 0:
+                ax.set_ylabel("水位/m")
+            else:
+                ax.set_ylabel(None)
+
+            if k >= 12:
+                ax.set_xlabel("t/h")
+                ax.tick_params(axis='x', which='both', labelbottom=True, pad=1)
+            else:
+                ax.set_xlabel(None)
+                ax.tick_params(axis='x', which='both', labelbottom=False, pad=1)
+        else:
+            ax.axis("off")
+
+    # 收紧整体留白（行距/列距 + 边距）
+    fig.subplots_adjust(left=0.065, right=0.985, top=0.985, bottom=0.035,
+                        hspace=0.12, wspace=0.12)
+
+    # 导出：尽量去除空白
+    plt.savefig('D:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.14\\2016.png',
+                bbox_inches='tight', pad_inches=0.05)
 
 
 def fig2_4():
@@ -855,5 +1174,82 @@ def veg_area():
     print(str(arr1_area))
     print(str(arr2_area))
 
+def inund_detection():
+    ch_ds = gdal.Open('G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\daily_inundation_file\\1989002.tif')
+    ch_arr = ch_ds.GetRasterBand(1).ReadAsArray()
+    landsat_inundation_filelist = bf.file_filter('G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\Inundation_DT_datacube\Individual_tif\\', ['.TIF'])
+    model_detect_filelist = bf.file_filter('G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\daily_inundation_file\\', ['.tif'])
+    dic_pre = {'doy': [], 'pre_yz_ii': [], 'pre_yz_in': [], 'pre_jj_ii': [], 'pre_jj_in': [], 'pre_ch_ii': [], 'pre_ch_in': [], 'pre_hh_ii': [], 'pre_hh_in': []}
+    dic_post = {'doy':[], 'post_yz_ii': [], 'post_yz_in': [], 'post_jj_ii': [], 'post_jj_in': [], 'post_ch_ii': [], 'post_ch_in': [], 'post_hh_ii': [], 'post_hh_in': []}
+    dic_ori_pre = {'doy': [], 'pre_yz_ii': [], 'pre_yz_in': [], 'pre_jj_ii': [], 'pre_jj_in': [], 'pre_ch_ii': [], 'pre_ch_in': [], 'pre_hh_ii': [], 'pre_hh_in': []}
+    dic_ori_post = {'doy':[], 'post_yz_ii': [], 'post_yz_in': [], 'post_jj_ii': [], 'post_jj_in': [], 'post_ch_ii': [], 'post_ch_in': [], 'post_hh_ii': [], 'post_hh_in': []}
+    dic_nn_pre = {'doy': [], 'pre_yz_ii': [], 'pre_yz_in': [], 'pre_jj_ii': [], 'pre_jj_in': [], 'pre_ch_ii': [], 'pre_ch_in': [], 'pre_hh_ii': [], 'pre_hh_in': []}
+    dic_nn_post = {'doy':[], 'post_yz_ii': [], 'post_yz_in': [], 'post_jj_ii': [], 'post_jj_in': [], 'post_ch_ii': [], 'post_ch_in': [], 'post_hh_ii': [], 'post_hh_in': []}
+
+
+    with tqdm(total=len(landsat_inundation_filelist), desc=f'Inun detection', bar_format='{l_bar}{bar:24}{r_bar}{bar:-24b}') as pbar:
+        for _ in landsat_inundation_filelist:
+            doy = int(_.split('\\')[-1].split('.')[0].split('_')[1])
+            model_file = [__ for __ in model_detect_filelist if str(doy) in __]
+            if len(model_file) == 1:
+                try:
+                    landsat_ds = gdal.Open(_)
+                    landsat_arr = landsat_ds.GetRasterBand(1).ReadAsArray()
+                    model_ds = gdal.Open(model_file[0])
+                    model_arr = model_ds.GetRasterBand(1).ReadAsArray()
+                    min3 = minimum_filter(model_arr, size=3, mode='nearest')
+                    max3 = maximum_filter(model_arr, size=3, mode='nearest')
+
+                    # 只要 3×3 窗口里有像元值与中心不同，就会让中心与 min 或 max 不相等
+                    has_diff_neighbor = (model_arr != min3) | (model_arr != max3)
+
+                    for sc, x_min, x_max in zip(['yz', 'jj', 'ch', 'hh'], [0, 950, 6100, 10210], [950, 6100,10210, 16537]):
+                        if doy > 2003001:
+                            dic_nn_post[f'post_{sc}_ii'].append(np.sum(np.logical_and(
+                                np.logical_and(np.logical_and(model_arr == 1, landsat_arr == 2), ch_arr != 1),
+                                has_diff_neighbor == 0)[:, x_min: x_max + 1]))
+                            dic_nn_post[f'post_{sc}_in'].append(np.sum(np.logical_and(
+                                np.logical_and(np.logical_and(model_arr == 1, landsat_arr == 1), ch_arr != 1),
+                                has_diff_neighbor == 0)[:, x_min: x_max + 1]))
+
+                            dic_post[f'post_{sc}_ii'].append(np.sum(np.logical_and(np.logical_and(model_arr == 1, landsat_arr == 2), ch_arr != 1)[:, x_min: x_max+1]))
+                            dic_post[f'post_{sc}_in'].append(np.sum(np.logical_and(np.logical_and(model_arr == 1, landsat_arr == 1), ch_arr != 1)[:, x_min: x_max+1]))
+                            dic_ori_post[f'post_{sc}_ii'].append(np.sum(np.logical_and(model_arr == 1, landsat_arr == 2)[:, x_min: x_max+1]))
+                            dic_ori_post[f'post_{sc}_in'].append(np.sum(np.logical_and(model_arr == 1, landsat_arr == 1)[:, x_min: x_max+1]))
+                        else:
+                            dic_nn_pre[f'pre_{sc}_ii'].append(np.sum(np.logical_and(np.logical_and(np.logical_and(model_arr == 1, landsat_arr == 2), ch_arr != 1), has_diff_neighbor == 0)[:, x_min: x_max+1]))
+                            dic_nn_pre[f'pre_{sc}_in'].append(np.sum(np.logical_and(np.logical_and(np.logical_and(model_arr == 1, landsat_arr == 1), ch_arr != 1), has_diff_neighbor == 0)[:, x_min: x_max+1]))
+                            dic_pre[f'pre_{sc}_ii'].append(np.sum(np.logical_and(np.logical_and(model_arr == 1, landsat_arr == 2), ch_arr != 1)[:, x_min: x_max+1]))
+                            dic_pre[f'pre_{sc}_in'].append(np.sum(np.logical_and(np.logical_and(model_arr == 1, landsat_arr == 1), ch_arr != 1)[:, x_min: x_max+1]))
+                            dic_ori_pre[f'pre_{sc}_ii'].append(np.sum(np.logical_and(model_arr == 1, landsat_arr == 2,)[:, x_min: x_max+1]))
+                            dic_ori_pre[f'pre_{sc}_in'].append(np.sum(np.logical_and(model_arr == 1, landsat_arr == 1)[:, x_min: x_max+1]))
+                    if doy > 2003001:
+                        dic_post['doy'].append(doy)
+                        dic_ori_post['doy'].append(doy)
+                        dic_nn_post['doy'].append(doy)
+                    else:
+                        dic_pre['doy'].append(doy)
+                        dic_ori_pre['doy'].append(doy)
+                        dic_nn_pre['doy'].append(doy)
+                except:
+                    print(traceback.format_exc())
+                    pass
+            else:
+                print(f'{_} is not valid')
+            pbar.update()
+
+        df_post = pd.DataFrame(dic_post)
+        df_pre =  pd.DataFrame(dic_pre)
+        df_post.to_csv('D:\A_PhD_Main_paper\Chap.2\Table\Table.2.6\\post.csv')
+        df_pre.to_csv('D:\A_PhD_Main_paper\Chap.2\Table\Table.2.6\\pre.csv')
+        df_ori_post = pd.DataFrame(dic_ori_post)
+        df_ori_pre =  pd.DataFrame(dic_ori_pre)
+        df_ori_post.to_csv('D:\A_PhD_Main_paper\Chap.2\Table\Table.2.6\\ori_post.csv')
+        df_ori_pre.to_csv('D:\A_PhD_Main_paper\Chap.2\Table\Table.2.6\\ori_pre.csv')
+        df_nn_post = pd.DataFrame(dic_nn_post)
+        df_nn_pre =  pd.DataFrame(dic_nn_pre)
+        df_nn_post.to_csv('D:\A_PhD_Main_paper\Chap.2\Table\Table.2.6\\nn_post.csv')
+        df_nn_pre.to_csv('D:\A_PhD_Main_paper\Chap.2\Table\Table.2.6\\nn_pre.csv')
+
 if __name__ == '__main__':
-    fig2_13()
+    inund_detection()

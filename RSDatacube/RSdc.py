@@ -936,6 +936,7 @@ class RS_dcs(object):
                         for _ in res:
                             for __ in range(len(_[0])):
                                 inundation_array.append(_[0][__], name=_[1][__])
+                                write_raster(gdal.Open(self.ROI_tif), _[0][__], static_inditif_path, f'Static_{str(_[1][__])}.TIF', raster_datatype=gdal.GDT_Byte, nodatavalue=0)
 
                     else:
                         inundation_arr_list = []
@@ -1412,6 +1413,119 @@ class RS_dcs(object):
             self.append(processed_dc4save)
 
         print(f'Finish remove the inundation area of the \033[1;34m{processed_index}\033[0m using \033[1;31m{str(time.time() - start_time)}\033[0m s!')
+
+    def generate_annual_ndvi_max_and_fvc(self, ndvi_index: str = 'NDVI', month_range: tuple = (5, 10),
+                                         ndvi_soil_percentile: float = 2, ndvi_veg_percentile: float = 98,
+                                         output_path: str = None):
+
+        if not self._withLandsatdc_:
+            raise ValueError('Please input Landsat NDVI datacube before generating annual NDVI max and FVC!')
+
+        if month_range[0] > month_range[1]:
+            raise ValueError('Please make sure the month range is valid!')
+
+        # Retrieve Landsat NDVI dc
+        ndvi_pos = [_ for _ in range(len(self._index_list)) if
+                    self._dc_typelist[_] == Landsat_dc and self._index_list[_] == ndvi_index]
+        if len(ndvi_pos) == 0:
+            raise ValueError('Please input a valid Landsat NDVI datacube!')
+        elif len(ndvi_pos) > 1:
+            raise ValueError('More than one NDVI Landsat datacube detected, please specify the index!')
+
+        ndvi_pos = ndvi_pos[0]
+        ndvi_dc = self.dcs[ndvi_pos]
+        doy_list = self._doys_backup_[ndvi_pos]
+        size_control_factor = self._size_control_factor_list[ndvi_pos]
+
+        if output_path is None:
+            output_path = os.path.join(self._Landsatdc_work_env, f'{ndvi_index}_annual_max_fvc\\')
+        output_path = Path(output_path).path_name
+        ndvi_output_path = os.path.join(output_path, 'NDVI_max\\')
+        fvc_output_path = os.path.join(output_path, 'FVC\\')
+        create_folder(ndvi_output_path)
+        create_folder(fvc_output_path)
+
+        roi_ds = gdal.Open(self.ROI_tif)
+        roi_arr = roi_ds.GetRasterBand(1).ReadAsArray()
+
+        # Convert doy to date if necessary and filter by month
+        date_list = []
+        for doy_temp in doy_list:
+            if len(str(int(doy_temp))) == 8:
+                date_list.append(int(doy_temp))
+            else:
+                date_list.append(doy2date(int(doy_temp)))
+
+        month_list = [int(np.mod(date_temp, 10000) // 100) for date_temp in date_list]
+        year_list = [int(date_temp // 10000) for date_temp in date_list]
+        unique_year = np.unique(year_list)
+
+        for year_temp in unique_year:
+            layer_pos = [i for i, (y_temp, m_temp) in enumerate(zip(year_list, month_list))
+                         if y_temp == year_temp and month_range[0] <= m_temp <= month_range[1]]
+
+            if len(layer_pos) == 0:
+                continue
+
+            ndvi_stack = []
+            for pos_temp in layer_pos:
+                if isinstance(ndvi_dc, NDSparseMatrix):
+                    layer_name = ndvi_dc.SM_namelist[pos_temp]
+                    ndvi_arr = ndvi_dc.SM_group[layer_name].toarray().astype(np.float32)
+                else:
+                    ndvi_arr = ndvi_dc[:, :, pos_temp].astype(np.float32)
+
+                if size_control_factor:
+                    ndvi_arr = ndvi_arr / 10000
+                    ndvi_arr[ndvi_arr == -3.2768] = np.nan
+                else:
+                    ndvi_arr[ndvi_arr == -32768] = np.nan
+
+                ndvi_arr[roi_arr == -32768] = np.nan
+                ndvi_stack.append(ndvi_arr)
+
+            if len(ndvi_stack) == 0:
+                continue
+
+            ndvi_max = np.nanmax(np.stack(ndvi_stack, axis=2), axis=2)
+
+            if np.all(np.isnan(ndvi_max)):
+                continue
+
+            valid_ndvi = ndvi_max[~np.isnan(ndvi_max)]
+            if valid_ndvi.size == 0:
+                continue
+
+            ndvi_soil = np.nanpercentile(valid_ndvi, ndvi_soil_percentile)
+            ndvi_veg = np.nanpercentile(valid_ndvi, ndvi_veg_percentile)
+
+            if ndvi_veg == ndvi_soil:
+                raise ValueError('NDVI vegetation and soil percentiles are identical, cannot compute FVC!')
+
+            fvc_arr = (ndvi_max - ndvi_soil) / (ndvi_veg - ndvi_soil)
+            fvc_arr[fvc_arr < 0] = 0
+            fvc_arr[fvc_arr > 1] = 1
+
+            ndvi_max_out = ndvi_max.copy()
+            if size_control_factor:
+                ndvi_max_out = (ndvi_max_out * 10000).astype(np.int16)
+                fvc_out = (fvc_arr * 10000).astype(np.int16)
+                nodata_value = -32768
+            else:
+                fvc_out = fvc_arr.astype(np.float32)
+                nodata_value = np.nan
+
+            ndvi_max_out[np.isnan(ndvi_max)] = nodata_value if size_control_factor else np.nan
+            fvc_out[np.isnan(fvc_arr)] = nodata_value if ~np.isnan(nodata_value) else np.nan
+
+            write_raster(roi_ds, ndvi_max_out, ndvi_output_path, f'NDVImax_{str(year_temp)}.tif',
+                         raster_datatype=gdal.GDT_Int16 if size_control_factor else gdal.GDT_Float32,
+                         nodatavalue=nodata_value)
+            write_raster(roi_ds, fvc_out, fvc_output_path, f'FVC_{str(year_temp)}.tif',
+                         raster_datatype=gdal.GDT_Int16 if size_control_factor else gdal.GDT_Float32,
+                         nodatavalue=nodata_value)
+
+            print(f'Finish generating NDVI max and FVC for year {str(year_temp)}')
 
     def _process_curve_fitting_para(self, **kwargs):
 

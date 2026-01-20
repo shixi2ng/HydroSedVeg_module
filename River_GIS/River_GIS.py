@@ -919,7 +919,7 @@ class HydroDatacube(object):
 
         # Compare with dem
         if self.sparse_factor:
-            cpu_amount = os.cpu_count() - 2
+            cpu_amount = os.cpu_count() - 10
             itr = int(np.floor(self.hydrodatacube.shape[2]/cpu_amount))
             sm_list, nm_list = [], []
             for _ in range(cpu_amount):
@@ -1019,19 +1019,18 @@ class HydroDatacube(object):
             for _ in range(len(self.hydrodatacube.SM_namelist)):
                 wl_sm_, wl_nm_ = self.hydrodatacube.SM_group[self.hydrodatacube.SM_namelist[_]], self.hydrodatacube.SM_namelist[_]
                 try:
-                    if not os.path.exists(f'{output_path}\\inundation_final\\{str(wl_nm_)}.tif'):
+                    if not os.path.exists(f'{output_path}\\inundation_temp\\' + str(wl_nm_) + '.tif'):
                         if wl_sm_.shape[0] != dem_file_arr.shape[0]:
                             wl_sm_ = np.row_stack((wl_sm_.toarray(), np.zeros([dem_file_arr.shape[0] - wl_sm_.shape[0], wl_sm_.shape[1]])))
 
                         if wl_sm_.shape[1] != dem_file_arr.shape[1]:
-                            wl_sm_ = np.column_stack(
-                                (wl_sm_.toarray(), np.zeros([wl_sm_.shape[0], dem_file_arr.shape[1] - wl_sm_.shape[1]])))
-
+                            wl_sm_ = np.column_stack((wl_sm_.toarray(), np.zeros([wl_sm_.shape[0], dem_file_arr.shape[1] - wl_sm_.shape[1]])))
                         inun_arr = np.array(wl_sm_ > dem_file_arr).astype(np.uint8)
-                        bf.create_folder(f'{output_path}\\inundation_temp\\')
-                        bf.write_raster(dem_file_ds, inun_arr, f'{output_path}\\inundation_temp\\', str(wl_nm_) + '.tif',
-                                        raster_datatype=gdal.GDT_Byte)
 
+                        bf.create_folder(f'{output_path}\\inundation_temp\\')
+                        bf.write_raster(dem_file_ds, inun_arr, f'{output_path}\\inundation_temp\\', str(wl_nm_) + '.tif', raster_datatype=gdal.GDT_Byte)
+
+                    if not os.path.exists(f'{output_path}\\inundation_final\\{str(wl_nm_)}.tif'):
                         src_temp = rasterio.open(f'{output_path}\\inundation_temp\\{str(wl_nm_)}.tif')
                         shp_dic = ({'properties': {'raster_val': int(v)}, 'geometry': s} for i, (s, v) in
                                    enumerate(rasterio.features.shapes(inun_arr, connectivity=8, transform=src_temp.transform)) if
@@ -1057,6 +1056,17 @@ class HydroDatacube(object):
 
                             burned = rasterio.features.rasterize(shapes=shapes, fill=0, out=out_arr, transform=src_temp.transform)
                             out.write_band(1, burned)
+
+                    if not os.path.exists(f'{output_path}\\inundation_height\\{str(wl_nm_)}.tif'):
+                        bf.create_folder(f'{output_path}\\inundation_height\\')
+                        inun_harr = np.array(wl_sm_ - dem_file_arr).astype(np.float32)
+                        ds = gdal.Open(f'{output_path}\\inundation_final\\{str(wl_nm_)}.tif')
+                        inun_arr = ds.GetRasterBand(1).ReadAsArray()
+                        inun_arr[inun_arr == 255] = 0
+                        inun_harr = inun_harr * inun_arr.astype(np.float32)
+                        inun_harr[inun_harr > 1000] = np.nan
+                        bf.write_raster(dem_file_ds, inun_harr, f'{output_path}\\inundation_height\\', str(wl_nm_) + '.tif', raster_datatype=gdal.GDT_Float32)
+
                     print(f'The {str(wl_nm_)} is generated!')
 
                 except:

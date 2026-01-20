@@ -855,13 +855,13 @@ def train_xgbrf_gpu_single(
     n_bins: int = 50,
     train_ratio_per_bin: float = 0.8,
     seed: int = 31,
-    grid_max_depth=[8, 9, 10, 11, 12],
-    grid_subsample=[0.5, 0.6],
-    grid_gamma= [4, 5],
-    grid_alpha= [0.1, 1],
-    grid_lambda = [1, 2], # RF-style
+    grid_max_depth=[6, ],
+    grid_subsample=[0.7, ],
+    grid_gamma= [4,],
+    grid_alpha= [ 1],
+    grid_lambda = [ 2], # RF-style
     n_estimators: int = 8000,
-    learning_rate: float = 0.2,
+    learning_rate: float = 0.5,
     early_stopping_rounds: int = 100
 ):
     rng = np.random.RandomState(seed)
@@ -944,6 +944,9 @@ def train_xgbrf_gpu_single(
             eval_set=eval_set,
         )
 
+        booster = clf.get_booster()
+        booster.set_attr(class_labels=json.dumps(['bareland', 'low', 'high', 'forest', 'farm', 'water', 'impre'], ensure_ascii=False))
+
         # 评估
         y_pred = clf.predict(X_valid)
         rep = classification_report(
@@ -994,6 +997,8 @@ def train_xgbrf_gpu_single(
         df_out = pd.concat([df_rep, sep_row, df_gain_block], axis=0)
         report_path = os.path.join(save_dir, "classification_report_valid.csv")
         df_out.to_csv(report_path, encoding="utf-8-sig")
+        df_train_path = os.path.join(save_dir, "classification_report_train.csv")
+        df_rep_train.to_csv(df_train_path, encoding="utf-8-sig")
 
         # 混淆矩阵照旧单独存
         pd.DataFrame(
@@ -1060,6 +1065,7 @@ def train_xgbrf_gpu_single(
 def predict_xgbrf_gpu_single(
         csv_path,
         model_path,
+        outpath,
         feature_cols=None,
         x_coord_col: str = "x_cord",
         yr=0,
@@ -1078,36 +1084,50 @@ def predict_xgbrf_gpu_single(
 
     X = df[feature_cols].values
 
-    # 使用 Booster 加载训练好的模型
+    # 加载模型
     booster = xgb.Booster()
     booster.load_model(model_path)
 
-    # 进行预测
-    dmatrix = xgb.DMatrix(X)  # 将输入数据转换为 DMatrix 格式
-    y_pred_prob = booster.predict(dmatrix)  # 获取预测的概率
-    y_pred_class = np.argmax(y_pred_prob, axis=1)  # 获取预测类别
+    # 预测
+    dmatrix = xgb.DMatrix(X)
+    y_pred_prob = booster.predict(dmatrix)
+    y_pred_class = np.argmax(y_pred_prob, axis=1)
 
-    # 保存预测结果
-    df['predicted_class'] = y_pred_class
+    # ===== 新增：读取模型中保存的标签名 =====
+    class_labels = None
+    if booster.attr("class_labels") is not None:
+        class_labels = json.loads(booster.attr("class_labels"))
 
-    # 输出预测结果到 CSV 文件
-    result_path = os.path.join('G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_predict\\', f"predicted_results_yr{str(yr)}.csv")
+    df["predicted_class"] = y_pred_class
+    if class_labels is not None:
+        df["predicted_label"] = [class_labels[int(i)] for i in y_pred_class]
+    else:
+        df["predicted_label"] = df["predicted_class"]
+
+    # 保存结果
+    os.makedirs(outpath, exist_ok=True)
+    result_path = os.path.join(outpath, f"predicted_results_yr{str(yr)}.csv")
     df.to_csv(result_path, index=False, encoding="utf-8-sig")
-
-    # 可选：如果有需要，也可以绘制学习曲线等
-    print(f"done {result_path}")
+    print(f"[DONE] 预测完成 → {result_path}")
 
 
 
 # 示例（按需取消注释）：
 if __name__ == "__main__":
-    # _ = 182
-    # for __ in range(35):
+    # _ = 13687
+    # ccdc_pro_res('G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\CCDC\output\pixel_csv\\', _, output_folder='G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_res_new\\', label_tif='G:\A_GEDI_Floodplain_vegh\Veg_map\\veg_mapV2_30m.tif')
+    # _ = 13687 - 730
+    # for __ in range(3):
     #     ccdc_pro_res('G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\CCDC\output\pixel_csv\\', _, output_folder='G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_csv\\')
     #     _ += 365
-    for _ in range(1986, 2021):
-        predict_xgbrf_gpu_single(f'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_csv\\ccdc_list_yr{str(_)}.0.csv', 'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_res\\xgbrf_gpu_out\md8_sub0p5_gm4_al1_lm2\\model.json', yr=_)
-    # train_xgbrf_gpu_single()
+    # train_xgbrf_gpu_single(csv_path=r"G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_res_new\ccdc_list_new30m.csv", output_dir=r"G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_res_new\xgbrf_gpu_out")
+    for _ in range(1986, 2024):
+        predict_xgbrf_gpu_single(f'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_csv\\ccdc_list_yr{str(_)}.0.csv', 'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_res_new\\xgbrf_gpu_out\md8_sub0p5_gm4_al1_lm2\\model.json', 'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_pre_new', yr=_)
+    #
+    # # train_xgbrf_gpu_single(csv_path=r"G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_res_old\ccdc_list_old30m.csv", output_dir=r"G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_res_old\xgbrf_gpu_out")
+    # for _ in range(1986, 2024):
+    #     predict_xgbrf_gpu_single(f'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_csv\\ccdc_list_yr{str(_)}.0.csv', 'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_res_old\\xgbrf_gpu_out\md8_sub0p5_gm4_al1_lm2\\model.json', 'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_pre_old',yr=_)
+
 #     doy_arr = [320,336,352,512,704,720,768,800,832,848,1040,1136,1536,1568,1840,2144,2160,2176,2208,2512,2528,2624,2688,2720,2944,3232,3344,3600,4160,4320,4736,4800,4880,5088,5096,5104,5200,5264,5688,5808,5848,5864,5880,5912,5944,6104,6152,6240,6288,6296,6312,6592,6616,6640,6648,6672,6880,6896,6912,7016,7032,7272,7288,7376,7384,7400,7536,7544,7616,7816,8072,8080,8096,8120,8176,8368,8384,8400,8424,8432,8496,8504,8696,8728,8816,8840,9088,9104,9120,9136,9248,9288,9408,9424,9432,9480,9560,9800,10144,10160,10208,10224,10240,10248,10320,10352,10368,10536,10544,10568,10576,10872,10896,10992,11216,11232,11272,11296,11320,11344,11408,11424,11440,11632,11680,11696,11744,11824,11848,11944,11992,12016,12120,12160,12384,12392,12416,12448,12456,12464,12496,12520,12576,12784,12792,12816,12832,12856,12864,12904,12912,13080,13120,13136,13144,13216,13240,13248,13272,13360,13368,13520,13544,13576,13628,13632,13650,13664,13728,13760,13770,13797,13808,13816,13824,13840,13856,13872]
 #     trend_arr = [[32987.], [33094.], [33105.], [33492.], [33038.], [32995.], [33250.], [33225.], [33193.], [33364.], [32733.], [33312.], [33297.], [33458.], [33334.], [33574.], [32979.], [32982.], [33104.], [33270.], [32805.], [33218.], [33706.], [33905.], [32962.], [33108.], [33306.], [32948.], [33566.], [33100.], [33231.], [33607.], [33857.], [33382.], [33188.], [33372.], [33389.], [33502.], [33260.], [33156.], [33185.], [33059.], [33000.], [33136.], [33426.], [33153.], [33019.], [32776.], [33229.], [33308.], [33356.], [33146.], [32866.], [33456.], [33232.], [33587.], [33283.], [33320.], [33079.], [33379.], [33286.], [33224.], [32945.], [33311.], [33103.], [33504.], [34076.], [33333.], [33251.], [34055.], [32795.], [33245.], [33257.], [33514.], [33829.], [33324.], [32849.], [33475.], [33227.], [33079.], [33870.], [33848.], [33646.], [33360.], [34019.], [33944.], [33562.], [33754.], [33789.], [33262.], [34432.], [34888.], [34249.], [34251.], [33622.], [33824.], [34151.], [34037.], [34711.], [34604.], [34962.], [34788.], [34555.], [34428.], [35407.], [36021.], [36340.], [35207.], [35273.], [34657.], [34820.], [34528.], [35744.], [34739.], [34969.], [34520.], [34469.], [35456.], [33766.], [34860.], [36151.], [36538.], [36364.], [34924.], [34621.], [34849.], [34853.], [35284.], [35494.], [35069.], [35708.], [35134.], [34455.], [36033.], [35324.], [34713.], [34509.], [35218.], [34727.], [35595.], [35380.], [36213.], [35310.], [34156.], [33948.], [34312.], [34657.], [35076.], [35018.], [35634.], [35017.], [34422.], [34059.], [34147.], [34417.], [34905.], [35228.], [34956.], [34657.], [35229.], [34605.], [34469.], [34357.], [34599.], [35854.], [35047.], [35781.], [35986.], [34528.], [34738.], [34715.], [34821.], [34387.], [34770.], [35460.], [35046.], [34982.], [34923.]]
 #     trend_arr = (np.array(trend_arr) - 32768) / 10000

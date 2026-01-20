@@ -1,12 +1,8 @@
-import copy
-import os.path
-import traceback
 
-import numpy as np
-import pandas as pd
+import os.path
+
 from RSDatacube.RSdc import *
-from skimage import io, feature
-from sklearn.metrics import r2_score
+
 import seaborn as sns
 from scipy import stats
 from River_GIS.River_GIS import *
@@ -17,7 +13,7 @@ from scipy.stats import pearsonr
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 from scipy import interpolate
-from RF.RFR_model import Ensemble_bagging_contribution
+
 
 
 def ln_temp(x, a, b, c, d):
@@ -494,7 +490,7 @@ def fig11nc2_func():
 def fig11nc3_func():
 
     plt.rc('font', family='Arial')
-    plt.rc('font', size=40)
+    plt.rc('font', size=22)
     plt.rc('axes', linewidth=3)
 
     # Create an array of evenly spaced values in the range 0 to 1
@@ -521,6 +517,61 @@ def fig11nc3_func():
     veg_pre_arr[np.logical_and(veg_post_arr == -200, np.isnan(veg_pre_arr))] = -200
 
     veg_pre_list, veg_post_list, veg_pre_ff, veg_post_ff, veg_pre_mean, veg_post_mean = [], [], [], [], [], []
+
+    mean_fig_dir = 'D:\B_papers_patents\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\A_fig_nc\A_NC_Fig3\\'
+    # 绘制一张纵向柱状图，比较各淹没梯度层的三峡前后淹没频率均值（沿用原始梯度划分）
+    # 绘制一张横向柱状图，比较各淹没梯度层的三峡前后淹没频率均值（沿用原始梯度划分）
+    ff_thresholds = [0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.20, 0.15, 0.1, 0.05]
+    gradient_bounds = [(thr - 0.05, thr) for thr in ff_thresholds]
+    valid_mask = np.isfinite(ff_all_arr) & np.isfinite(ff_arr) & np.isfinite(ff_post_arr)
+
+    layer_labels, pre_means, post_means, pre_stds, post_stds, layer_changes = [], [], [], [], [], []
+    for lower, upper in gradient_bounds:
+        layer_mask = valid_mask & (ff_all_arr > lower) & (ff_all_arr <= upper)
+        if not np.any(layer_mask):
+            continue
+
+        pre_values = ff_arr[layer_mask]
+        post_values = ff_post_arr[layer_mask]
+
+        if pre_values.size == 0 or post_values.size == 0:
+            continue
+
+        layer_labels.append(f'{lower:.2f}-{upper:.2f}')
+        pre_means.append(np.nanmean(pre_values))
+        post_means.append(np.nanmean(post_values))
+        pre_stds.append(np.nanstd(pre_values))
+        post_stds.append(np.nanstd(post_values))
+        layer_changes.append(np.nanmean(post_values) - np.nanmean(pre_values))
+
+    if layer_labels:
+        # 最小淹没梯度置于最顶层
+
+
+        y = np.arange(len(layer_labels))
+        bar_height = 0.38
+        fig, ax = plt.subplots(figsize=(9, 8.96), constrained_layout=True)
+        ax.barh(y - bar_height / 2, pre_means, height=bar_height, color=(81 / 256, 121 / 256, 150 / 256),
+                alpha=0.9, label='Pre-TGD', xerr=pre_stds, error_kw={'elinewidth': 2, 'capthick': 2, 'capsize': 6})
+        ax.barh(y + bar_height / 2, post_means, height=bar_height, color=(207 / 256, 83 / 256, 98 / 256),
+                alpha=0.9, label='Post-TGD', xerr=post_stds, error_kw={'elinewidth': 2, 'capthick': 2, 'capsize': 6})
+
+        ax.set_yticks([100])
+        ax.set_ylim([-0.5, 11])
+        ax.set_xlim(0, 1)
+        ax.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
+        ax.set_xticklabels(['0%', '20%', '40%', '60%', '80%', '100%'])
+
+        ax.xaxis.grid(True, linestyle='--', alpha=0.6)
+
+        os.makedirs(mean_fig_dir, exist_ok=True)
+        plt.savefig(os.path.join(mean_fig_dir, 'Fig11_nc_ff_mean_compare.png'), dpi=300)
+        plt.close(fig)
+
+        # 输出每一层淹没频率变化
+        for label, change in zip(layer_labels, layer_changes):
+            print(f'{label} 层淹没频率变化 (post-pre): {change:.4f}')
+
     # Generate the cumulative curve
     for _ in [0.5, 0.45, 0.4, 0.35, 0.3, 0.25,  0.20, 0.15,  0.1, 0.05]:
         veg_post_arr2 = copy.deepcopy(veg_post_arr)
@@ -2927,8 +2978,8 @@ def fig_wl_func():
         plt.close()
 
 
-fig15_func()
-# fig11nc3_func()
+# fig15_func()
+fig11nc3_func()
 # fig11nc_func()
 # fig_wl_func()
 # fig12_nc_func()

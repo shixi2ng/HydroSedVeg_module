@@ -1,26 +1,17 @@
-import copy
+
 import os.path
-import traceback
+
 import scipy.io
-import matplotlib.pyplot as plt
-from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
-import numpy as np
-import pandas as pd
+
 from RSDatacube.RSdc import *
-from skimage import io, feature
-from sklearn.metrics import r2_score
+
 import seaborn as sns
-from scipy import stats
+
 from River_GIS.River_GIS import *
 from scipy.stats import pearsonr, kurtosis, variation, cramervonmises_2samp, wasserstein_distance
-import matplotlib
-import matplotlib.colors as mcolors
-from scipy.stats import pearsonr
+
 import matplotlib.pyplot as plt
-from scipy.stats import norm
-from scipy import interpolate
-from RF.RFR_model import Ensemble_bagging_contribution
+
 
 
 def figS3nc_func():
@@ -87,7 +78,7 @@ def figS3nc_func():
     for patch in bplot['boxes']:
         patch.set_facecolor((208/256, 156/256, 44/256))
     # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
-    plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\along_wl_nc.png', dpi=500)
+    # plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\along_wl_nc.png', dpi=500)
     plt.close()
 
     plt.close()
@@ -112,7 +103,7 @@ def figS3nc_func():
     for patch in bplot['boxes']:
         patch.set_facecolor((208/256, 156/256, 44/256))
     # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
-    plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\along_ds_nc.png', dpi=500)
+    # plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\along_ds_nc.png', dpi=500)
     plt.close()
     wl_pri2, wl_post2 = [], []
     wl_pri3, wl_post3 = [], []
@@ -132,7 +123,7 @@ def figS3nc_func():
             year_dic[f'{str(year)}_wl'] = flow_temp[0:365]
             year_dic[f'{str(year)}_sed'] = sed_temp[0:365]
             if len(flow_temp) == 365 or len(flow_temp) == 366:
-                if year > 2004:
+                if year > 2002:
                     wl_post.append(flow_temp[0:365])
                     sd_post.append(sed_temp[0:365])
                     ds_post.append(discharge[0:365])
@@ -140,7 +131,7 @@ def figS3nc_func():
                         wl_post2.extend(flow_temp[0: 365])
                     elif sec == '汉口':
                         wl_post3.extend(flow_temp[0: 365])
-                elif year <= 2004:
+                elif year <= 2002:
                     wl_pri.append(flow_temp[0:365])
                     if sec == '宜昌':
                         wl_pri2.extend(flow_temp[0: 365])
@@ -182,15 +173,15 @@ def figS3nc_func():
         ax_temp.set_xticklabels(c, fontname='Arial', fontsize=24)
         ax_temp.set_ylabel('Water level/m', fontname='Arial', fontsize=28, fontweight='bold')
         # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
-        plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\{sec}_wl_nc.png', dpi=500)
+        # plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\{sec}_wl_nc.png', dpi=500)
         plt.close()
 
         # fig_temp, ax_temp = plt.subplots(figsize=(11, 6), constrained_layout=True)
         # wl_temp = np.concatenate([np.nanmean(sd_pri[:, 150: 300], axis=1), np.nanmean(sd_post[:, 150: 300], axis=1)])
-        # ax_temp.bar([_ for _ in range(1990, 2005)], np.nanmean(sd_pri[:, 150: 300], axis=1), 0.6, label='SAR', color=(255/256, 155/256, 37/256), edgecolor=(0/256, 0/256, 0/256), linewidth=1.5, zorder=3, alpha=0.5)
-        # ax_temp.plot([_ for _ in range(1990, 2005)], [np.nanmean(np.nanmean(sd_pri[:, 150: 300], axis=1)) for _ in range(1990, 2005)], linewidth=5, c=(255/256, 155/256, 37/256))
-        # ax_temp.bar([_ for _ in range(2005, 2021)], np.nanmean(sd_post[:, 150: 300], axis=1), 0.6, label='SAR', color=(0/256, 92/256, 171/256), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1.5, zorder=3, alpha=0.5)
-        # ax_temp.plot([_ for _ in range(2005, 2021)], [np.nanmean(np.nanmean(sd_post[:, 150: 300], axis=1)) for _ in range(2005, 2021)], linewidth=5, c=(0/256, 92/256, 171/256))
+        # ax_temp.bar([_ for _ in range(1990, 2003)], np.nanmean(sd_pri[:, 150: 300], axis=1), 0.6, label='SAR', color=(255/256, 155/256, 37/256), edgecolor=(0/256, 0/256, 0/256), linewidth=1.5, zorder=3, alpha=0.5)
+        # ax_temp.plot([_ for _ in range(1990, 2003)], [np.nanmean(np.nanmean(sd_pri[:, 150: 300], axis=1)) for _ in range(1990, 2003)], linewidth=5, c=(255/256, 155/256, 37/256))
+        # ax_temp.bar([_ for _ in range(2003, 2021)], np.nanmean(sd_post[:, 150: 300], axis=1), 0.6, label='SAR', color=(0/256, 92/256, 171/256), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1.5, zorder=3, alpha=0.5)
+        # ax_temp.plot([_ for _ in range(2003, 2021)], [np.nanmean(np.nanmean(sd_post[:, 150: 300], axis=1)) for _ in range(2003, 2021)], linewidth=5, c=(0/256, 92/256, 171/256))
         # ax_temp.set_xlabel('Year', fontname='Arial', fontsize=24, fontweight='bold')
         # ax_temp.set_ylabel('Sediment concentration', fontname='Arial', fontsize=24, fontweight='bold')
         # ax_temp.set_xlim(1989.5, 2020.5)
@@ -198,10 +189,10 @@ def figS3nc_func():
 
         # fig_temp, ax_temp = plt.subplots(figsize=(15, 6), constrained_layout=True)
         # wl_temp = np.concatenate([np.nanmean(ds_pri[:, 150: 300], axis=1), np.nanmean(sd_post[:, 150: 300], axis=1)])
-        # ax_temp.bar([_ for _ in range(1990, 2005)], np.nanmean(ds_pri[:, 150: 300], axis=1), 0.6, label='SAR', color=(256/256, 200/256, 87/256), edgecolor=(0/256, 0/256, 0/256), linewidth=1.5, zorder=3, alpha=0.5)
-        # ax_temp.plot([_ for _ in range(1990, 2005)], [np.nanmean(np.nanmean(ds_pri[:, 150: 300], axis=1)) for _ in range(1990, 2005)], linewidth=4, c=(255/256, 200/256, 87/256))
-        # ax_temp.bar([_ for _ in range(2005, 2021)], np.nanmean(ds_post[:, 150: 300], axis=1), 0.6, label='SAR', color=(0/256, 72/256, 151/256), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1.5, zorder=3, alpha=0.5)
-        # ax_temp.plot([_ for _ in range(2005, 2021)], [np.nanmean(np.nanmean(ds_post[:, 150: 300], axis=1)) for _ in range(2005, 2021)], linewidth=3, c=(0/256, 72/256, 151/256))
+        # ax_temp.bar([_ for _ in range(1990, 2003)], np.nanmean(ds_pri[:, 150: 300], axis=1), 0.6, label='SAR', color=(256/256, 200/256, 87/256), edgecolor=(0/256, 0/256, 0/256), linewidth=1.5, zorder=3, alpha=0.5)
+        # ax_temp.plot([_ for _ in range(1990, 2003)], [np.nanmean(np.nanmean(ds_pri[:, 150: 300], axis=1)) for _ in range(1990, 2003)], linewidth=4, c=(255/256, 200/256, 87/256))
+        # ax_temp.bar([_ for _ in range(2003, 2021)], np.nanmean(ds_post[:, 150: 300], axis=1), 0.6, label='SAR', color=(0/256, 72/256, 151/256), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1.5, zorder=3, alpha=0.5)
+        # ax_temp.plot([_ for _ in range(2003, 2021)], [np.nanmean(np.nanmean(ds_post[:, 150: 300], axis=1)) for _ in range(2003, 2021)], linewidth=3, c=(0/256, 72/256, 151/256))
         # ax_temp.set_xlabel('Year', fontname='Arial', fontsize=28, fontweight='bold')
         # ax_temp.set_ylabel('Sediment concentration', fontname='Arial', fontsize=28, fontweight='bold')
         # ax_temp.set_xlim(1989.5, 2020.5)
@@ -236,17 +227,17 @@ def figS3nc_func():
         if sec == '宜昌':
             fig_temp, ax_temp = plt.subplots(figsize=(10, 7.5), constrained_layout=True)
             wl_temp = np.concatenate([np.nanmax(wl_pri, axis=1), np.nanmax(wl_post, axis=1)])
-            # ax_temp.bar([_ for _ in range(1985, 2005)], np.nanmax(wl_pri, axis=1), 0.65, label='SAR', color=(0.2, 0.3, 0.8), edgecolor=(0/256, 0/256, 0/256), linewidth=1, zorder=3, alpha=0.5)
-            # ax_temp.bar([_ for _ in range(2005, 2021)], np.nanmax(wl_post, axis=1), 0.65, label='SAR', color=(0.8, 0.3, 0.2), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1, zorder=3, alpha=0.5)
+            # ax_temp.bar([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), 0.65, label='SAR', color=(0.2, 0.3, 0.8), edgecolor=(0/256, 0/256, 0/256), linewidth=1, zorder=3, alpha=0.5)
+            # ax_temp.bar([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), 0.65, label='SAR', color=(0.8, 0.3, 0.2), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1, zorder=3, alpha=0.5)
             ax_temp.grid(axis='y', color=(128 / 256, 128 / 256, 128 / 256), zorder=1)
-            ax_temp.plot([_ for _ in range(1985, 2005)], np.nanmax(wl_pri, axis=1), color=(0.2, 0.3, 0.8), linewidth=3,ls='-', label='Pre-TGD')
-            ax_temp.plot([_ for _ in range(2005, 2021)], np.nanmax(wl_post, axis=1), color=(0.8, 0.3, 0.2), linewidth=3,ls='-', label='Post-TGD')
-            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(0, 0, 100), np.linspace(50., 50., 100), edgecolor='none', facecolor=(0.4,0.4,0.4), alpha=0.3, lw=2)
-            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(50, 50, 100), color=(0, 0, 0), ls='-.', lw=2, label='Overbank')
-            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(50, 50, 100), np.linspace(52, 52, 100), edgecolor='none', facecolor=(0.8,0.8,0.8), alpha=0.3, lw=2)
-            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(52, 52, 100), color=(0, 0, 0), ls='--', lw=2, label='Extreme')
-            ax_temp.scatter([_ for _ in range(1985, 2005)], np.nanmax(wl_pri, axis=1), s = 15 **2, marker='s', color="none", edgecolor=(0,0,1), linewidth=3)
-            ax_temp.scatter([_ for _ in range(2005, 2021)], np.nanmax(wl_post, axis=1), s = 15 **2, marker='s', color="none", edgecolor=(1,0,0), linewidth=3)
+            ax_temp.plot([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), color=(0.2, 0.3, 0.8), linewidth=3,ls='-', label='Pre-TGD')
+            ax_temp.plot([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), color=(0.8, 0.3, 0.2), linewidth=3,ls='-', label='Post-TGD')
+            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(0, 0, 100), np.linspace(47.7, 47.7, 100), edgecolor='none', facecolor=(0.4,0.4,0.4), alpha=0.3, lw=2)
+            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(47.7, 47.7, 100), color=(0, 0, 0), ls='-.', lw=2, label='Overbank')
+            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(47.7, 47.7, 100), np.linspace(49.7, 49.7, 100), edgecolor='none', facecolor=(0.8,0.8,0.8), alpha=0.3, lw=2)
+            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(49.7, 49.7, 100), color=(0, 0, 0), ls='--', lw=2, label='Extreme')
+            ax_temp.scatter([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), s = 15 **2, marker='s', color="none", edgecolor=(0,0,1), linewidth=3)
+            ax_temp.scatter([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), s = 15 **2, marker='s', color="none", edgecolor=(1,0,0), linewidth=3)
             # ax_temp.plot(np.linspace([2004.5, 2004.5, 100]), np.linspace([0, 100, 100]), color=(0.2, 0.2, 0.2))
             ax_temp.set_xlabel('Year', fontname='Arial', fontsize=28, fontweight='bold')
             ax_temp.set_ylabel('Annual maximum water level/m', fontname='Arial', fontsize=28, fontweight='bold')
@@ -255,27 +246,27 @@ def figS3nc_func():
             ax_temp.set_yticklabels(['45', '47','49','51','53','55'], fontname='Arial', fontsize=24)
             ax_temp.set_xlim(1984.5, 2020.5)
             ax_temp.set_ylim(45, 55)
-            plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\{sec}_annual_wl_nc.png', dpi=500)
+            plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.5\\{sec}_annual_wl_nc.png', dpi=500)
             plt.close()
 
         if sec == '汉口':
             fig_temp, ax_temp = plt.subplots(figsize=(10, 7.5), constrained_layout=True)
             wl_temp = np.concatenate([np.nanmax(wl_pri, axis=1), np.nanmax(wl_post, axis=1)])
             ax_temp.grid(axis='y', color=(128 / 256, 128 / 256, 128 / 256), zorder=1)
-            # ax_temp.bar([_ for _ in range(1985, 2005)], np.nanmax(wl_pri, axis=1), 0.65, label='SAR', color=(0.2, 0.3, 0.8), edgecolor=(0/256, 0/256, 0/256), linewidth=1, zorder=3, alpha=0.5)
-            # ax_temp.bar([_ for _ in range(2005, 2021)], np.nanmax(wl_post, axis=1), 0.65, label='SAR', color=(0.8, 0.3, 0.2), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1, zorder=3, alpha=0.5)
-            ax_temp.plot([_ for _ in range(1985, 2005)], np.nanmax(wl_pri, axis=1), color=(0.2, 0.3, 0.8), linewidth=3,
+            # ax_temp.bar([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), 0.65, label='SAR', color=(0.2, 0.3, 0.8), edgecolor=(0/256, 0/256, 0/256), linewidth=1, zorder=3, alpha=0.5)
+            # ax_temp.bar([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), 0.65, label='SAR', color=(0.8, 0.3, 0.2), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1, zorder=3, alpha=0.5)
+            ax_temp.plot([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), color=(0.2, 0.3, 0.8), linewidth=3,
                          ls='-', label='Pre-TGD')
-            ax_temp.plot([_ for _ in range(2005, 2021)], np.nanmax(wl_post, axis=1), color=(0.8, 0.3, 0.2), linewidth=3,
+            ax_temp.plot([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), color=(0.8, 0.3, 0.2), linewidth=3,
                          ls='-', label='Post-TGD')
-            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(0, 0, 100), np.linspace(24, 24, 100),
+            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(0, 0, 100), np.linspace(21.2, 21.2, 100),
                                  edgecolor='none', facecolor=(0.4, 0.4, 0.4), alpha=0.3, lw=2)
-            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(24, 24, 100), color=(0, 0, 0), ls='-.', lw=2, label='Overbank')
-            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(24, 24, 100), np.linspace(26, 26, 100), edgecolor='none', facecolor=(0.8,0.8,0.8), alpha=0.3, lw=2)
-            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(26, 26, 100), color=(0, 0, 0), ls='--', lw=2, label='Extreme')
-            ax_temp.scatter([_ for _ in range(1985, 2005)], np.nanmax(wl_pri, axis=1), s=15 ** 2, marker='s',
+            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(21.2, 21.2, 100), color=(0, 0, 0), ls='-.', lw=2, label='Overbank')
+            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(21.2, 21.2, 100), np.linspace(24.2, 24.2, 100), edgecolor='none', facecolor=(0.8,0.8,0.8), alpha=0.3, lw=2)
+            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(24.2, 24.2, 100), color=(0, 0, 0), ls='--', lw=2, label='Extreme')
+            ax_temp.scatter([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), s=15 ** 2, marker='s',
                             color="none", edgecolor=(0, 0, 1), linewidth=3)
-            ax_temp.scatter([_ for _ in range(2005, 2021)], np.nanmax(wl_post, axis=1), s=15 ** 2, marker='s',
+            ax_temp.scatter([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), s=15 ** 2, marker='s',
                             color="none", edgecolor=(1, 0, 0), linewidth=3)
             # ax_temp.plot(np.linspace([2004.5, 2004.5, 100]), np.linspace([0, 100, 100]), color=(0.2, 0.2, 0.2))
 
@@ -285,7 +276,7 @@ def figS3nc_func():
             ax_temp.set_yticklabels(['20', '22', '24', '26', '28', '30'], fontname='Arial', fontsize=24)
             ax_temp.set_xlim(1984.5, 2020.5)
             ax_temp.set_ylim(20, 30)
-            plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\{sec}_annual_wl_nc.png', dpi=500)
+            plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.5\\{sec}_annual_wl_nc.png', dpi=500)
             plt.close()
 
     # fig_temp, ax_temp = plt.subplots(nrows=1, ncols=2, figsize=(11, 6), constrained_layout=True)
@@ -349,44 +340,44 @@ def figS3nc_func():
     # ax_temp[1].legend()
     # plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\S_NC_FigS3\\{sec}_wl_freq_nc.png', dpi=500)
 
-    fig_temp, ax_temp = plt.subplots(nrows=1, ncols=1, figsize=(11, 6), constrained_layout=True)
-    wl_dic = {'wl': [], 'status': []}
-    s_ = 36
-    for _ in wl_pri2:
-        wl_dic['status'].append('Pre-TGP period')
-        wl_dic['wl'].append(int(np.floor(_)))
-
-    for _ in wl_post2:
-        wl_dic['status'].append('Post-TGP period')
-        wl_dic['wl'].append(int(np.floor(_)))
-
-    sns.histplot(data=wl_dic, x="wl", hue="status", palette=[(127/256, 163/256, 222/256), (247/256, 247/256, 247/256)], multiple="dodge", shrink=1.45, stat='density', alpha=0.9)
-
-    # # Manually add dashed lines for category 'C'
-    i = 0
-    for container in ax_temp.containers:
-        for patch in container.patches:
-            if np.mod(i, 2) == 0:  # This checks if the patch is for category 'C'
-                patch.set_hatch('/')  # Set dashed lines
-                patch.set_facecolor((247/256, 247/256, 247/256))
-            elif np.mod(i, 2) == 1:
-                patch.set_hatch('')              # This checks if the patch is for category 'C' # Set dashed lines
-                patch.set_facecolor((127/256, 163/256, 222/256))
-        i += 1
-
-    ax_temp.set_xticks([38, 42, 46, 50, 54])
-    ax_temp.set_xticklabels(['38', '42', '46', '50', '54'], fontname='Arial', fontsize=22)
-    ax_temp.set_yticks([0, 0.05, 0.10, 0.15, 0.2, 0.25])
-    ax_temp.set_yticklabels(['0%', '5%', '10%', '15%', '20%', '25%'], fontname='Arial', fontsize=22)
-    ax_temp.set_ylabel('Density', fontname='Arial', fontsize=26, fontweight='bold')
-    ax_temp.set_xlabel('Water level/m', fontname='Arial', fontsize=26, fontweight='bold')
-    ax_temp.set_ylim([0, 0.25])
-    ax_temp.set_xlim([35.5, 52])
-    ax_temp.get_legend()
-
-    plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\A_NC_Fig1\\{sec}_hist.png', dpi=500)
-    plt.close()
-    pass
+    # fig_temp, ax_temp = plt.subplots(nrows=1, ncols=1, figsize=(11, 6), constrained_layout=True)
+    # wl_dic = {'wl': [], 'status': []}
+    # s_ = 36
+    # for _ in wl_pri2:
+    #     wl_dic['status'].append('Pre-TGP period')
+    #     wl_dic['wl'].append(int(np.floor(_)))
+    #
+    # for _ in wl_post2:
+    #     wl_dic['status'].append('Post-TGP period')
+    #     wl_dic['wl'].append(int(np.floor(_)))
+    #
+    # sns.histplot(data=wl_dic, x="wl", hue="status", palette=[(127/256, 163/256, 222/256), (247/256, 247/256, 247/256)], multiple="dodge", shrink=1.45, stat='density', alpha=0.9)
+    #
+    # # # Manually add dashed lines for category 'C'
+    # i = 0
+    # for container in ax_temp.containers:
+    #     for patch in container.patches:
+    #         if np.mod(i, 2) == 0:  # This checks if the patch is for category 'C'
+    #             patch.set_hatch('/')  # Set dashed lines
+    #             patch.set_facecolor((247/256, 247/256, 247/256))
+    #         elif np.mod(i, 2) == 1:
+    #             patch.set_hatch('')              # This checks if the patch is for category 'C' # Set dashed lines
+    #             patch.set_facecolor((127/256, 163/256, 222/256))
+    #     i += 1
+    #
+    # ax_temp.set_xticks([38, 42, 46, 50, 54])
+    # ax_temp.set_xticklabels(['38', '42', '46', '50', '54'], fontname='Arial', fontsize=22)
+    # ax_temp.set_yticks([0, 0.05, 0.10, 0.15, 0.2, 0.25])
+    # ax_temp.set_yticklabels(['0%', '5%', '10%', '15%', '20%', '25%'], fontname='Arial', fontsize=22)
+    # ax_temp.set_ylabel('Density', fontname='Arial', fontsize=26, fontweight='bold')
+    # ax_temp.set_xlabel('Water level/m', fontname='Arial', fontsize=26, fontweight='bold')
+    # ax_temp.set_ylim([0, 0.25])
+    # ax_temp.set_xlim([35.5, 52])
+    # ax_temp.get_legend()
+    #
+    # plt.savefig(f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\A_NC_Fig1\\{sec}_hist.png', dpi=500)
+    # plt.close()
+    # pass
 
 
 def tabS2_func():
@@ -772,7 +763,7 @@ def figs8_func():
         plt.savefig(f'G:\B_papers_patents\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\A_fig_nc\S_NC_FigS8\\{sec}_ele_diff.png', dpi=500)
         plt.close()
 
-
-tabS2_func()
+figS3nc_func()
+# tabS2_func()
 # # tabS1_func()
 # figs8_func()

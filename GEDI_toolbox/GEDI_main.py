@@ -71,9 +71,10 @@ class GEDI_df(object):
         GEDI_df('GEDI_inform.xlsx')
         """
         self.GEDI_inform_DF = None
-        self._GEDI_fund_att = ['Date', 'Shot Number', 'Beam', 'Latitude', 'Longitude', 'Tandem-X DEM', 'Elevation (m)',
-                               'Canopy Elevation (m)', 'Canopy Height (rh100)', 'RH 98', 'RH 25', 'Quality Flag',
-                               'Degrade Flag', 'Sensitivity', 'Urban rate', 'Landsat water rate', 'Leaf off flag']
+        # self._GEDI_fund_att = ['Date', 'Shot Number', 'Beam', 'Latitude', 'Longitude', 'Tandem-X DEM', 'Elevation (m)',
+        #                        'Canopy Elevation (m)', 'Canopy Height (rh100)', 'RH 98', 'RH 25', 'Quality Flag',
+        #                        'Degrade Flag', 'Sensitivity', 'Urban rate', 'Landsat water rate', 'Leaf off flag']
+        self._GEDI_fund_att = ['Date', 'Shot Number', 'Beam', 'Latitude', 'Longitude', 'AGBD', 'PFT class']
         self._GEDI_fund_att_simu = ['Date', 'Shot Number', 'Beam', 'EPSG_lat', 'EPSG_lon', 'Tandem-X DEM', 'Elevation (m)',
                                     'Canopy Elevation (m)', 'Canopy Height (rh100)', 'RH 98', 'RH 25', 'Quality Flag',
                                     'Degrade Flag', 'Sensitivity', 'Urban rate', 'Landsat water rate', 'Leaf off flag']
