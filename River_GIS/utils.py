@@ -15,6 +15,8 @@ from shapely.ops import nearest_points
 from datetime import datetime
 import scipy.sparse as sm
 import json
+from concurrent import futures
+import psutil
 
 
 def construct_inunfac_dc(input_dic: dict, output_path, year, metadata_dic):
@@ -344,7 +346,12 @@ def determin_start_vertex_of_point(point1, line: LineString):
     for _ in range(len(line_coords) - 1):
         if (line_coords[_][0] - point1_x) * (line_coords[_ + 1][0] - point1_x) <= 0:
             if (line_coords[_][1] - point1_y) * (line_coords[_ + 1][1] - point1_y) <= 0:
-                point1_y_temp = line_coords[_][1] + (line_coords[_ + 1][1] - line_coords[_][1]) * (point1_x - line_coords[_][0]) / (line_coords[_ + 1][0] - line_coords[_][0])
+                if line_coords[_ + 1][0] - line_coords[_][0] == 0:
+                    start_vertex = _
+                    break
+                else:
+                    point1_y_temp = line_coords[_][1] + (line_coords[_ + 1][1] - line_coords[_][1]) * (point1_x - line_coords[_][0]) / (line_coords[_ + 1][0] - line_coords[_][0])
+
                 if point1_y_temp - point1_y < 0.1:
                     start_vertex = _
                     break
@@ -457,6 +464,229 @@ def dis2points_via_line(point1, point2, line_temp: LineString, line_distance=Non
             t3_all += time.time() - t3
             # print(f'{str(t1_all)}s, {str(t2_all)}s, {str(t3_all)}s')
             return distance_between_2points([point1_x, point1_y], [point2_x, point2_y])
+
+
+def hydro_wl_interpolation(df: pd.DataFrame, thal, year_range, geotransform: list, cs_list: list, hydro_pos: list):
+
+    try:
+        # Drop unnes water level
+        all_year_list, year_domain = [year_ for year_ in year_range], []
+        for _ in cs_list:
+            unne_series = None
+            for year in year_range:
+                if unne_series is None:
+                    unne_series = (thal.hydro_inform_dic[_]['year'] != year)
+                else:
+                    unne_series = unne_series & (thal.hydro_inform_dic[_]['year'] != year)
+
+            thal.hydro_inform_dic[_] = thal.hydro_inform_dic[_].drop(thal.hydro_inform_dic[_][unne_series].index).reset_index(drop=True)
+            year_domain.append(np.unique(np.array(thal.hydro_inform_dic[_]['year'])).tolist())
+
+        # Define the output data
+        ul_x, x_res, ul_y, y_res = geotransform
+        df = df.reset_index(drop=True)
+        yearly_wl = {str(year) + '_wl': [] for year in year_range}
+
+        with tqdm(total=df.shape[0], desc='Process hydrodatacube water level', bar_format='{l_bar}{bar:24}{r_bar}{bar:-24b}') as pbar:
+            for len_t in range(df.shape[0]):
+                y_temp, x_temp = int(df['y'][len_t]), int(df['x'][len_t])
+                coord_x, coord_y = ul_x + (x_temp + 0.5) * x_res, ul_y + (y_temp + 0.5) * y_res
+                hydro_pos_temp = copy.deepcopy(hydro_pos)
+
+                if thal.smoothed_Thalweg is None:
+                    nearest_p = nearest_points(Point([coord_x, coord_y]), thal.Thalweg_Linestring)[1]
+                    start_vertex_index = determin_start_vertex_of_point(nearest_p, thal.Thalweg_Linestring)
+
+                    factor = None
+                    hydro_index_list, year_list = [], []
+                    for year in year_range:
+                        start_hydro_index = copy.deepcopy(start_vertex_index)
+                        end_hydro_index = copy.deepcopy(start_vertex_index + 1)
+
+                        if start_hydro_index < min(hydro_pos):
+                            factor = 1
+                            start_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] >= start_hydro_index]
+                            if len(start_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                start_hydro_index = min(start_hydro_index_list)
+
+                            end_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] > start_hydro_index]
+                            if len(end_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                end_hydro_index = min(end_hydro_index_list)
+
+                        elif end_hydro_index > max(hydro_pos):
+                            factor = 2
+                            end_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] <= end_hydro_index]
+                            if len(end_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                end_hydro_index = max(end_hydro_index_list)
+
+                            start_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] < end_hydro_index]
+                            if len(start_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                start_hydro_index = max(start_hydro_index_list)
+
+                        else:
+                            factor = 3
+                            start_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] <= start_hydro_index]
+                            end_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] >= end_hydro_index]
+
+                            if len(start_hydro_index_list) == 0 or len(end_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                start_hydro_index = max(start_hydro_index_list)
+                                end_hydro_index = min(end_hydro_index_list)
+
+                        year_list.append(year)
+                        hydro_index_list.append([start_hydro_index, end_hydro_index])
+
+                    hydro_unique_index_list = np.unique(np.array(hydro_index_list), axis=0).tolist()
+                    inform_list = []
+                    for _ in hydro_unique_index_list:
+                        inform_temp = []
+                        inform_temp.append(Point([thal.Thalweg_Linestring.coords[start_hydro_index][0], thal.Thalweg_Linestring.coords[start_hydro_index][1]]))
+                        inform_temp.append(Point([thal.Thalweg_Linestring.coords[end_hydro_index][0], thal.Thalweg_Linestring.coords[end_hydro_index][1]]))
+                        inform_temp.append(dis2points_via_line(nearest_p, inform_temp[0], thal.Thalweg_Linestring))
+                        inform_temp.append(dis2points_via_line(nearest_p, inform_temp[1], thal.Thalweg_Linestring))
+                        inform_list.append(inform_temp)
+
+                    for year in year_list:
+                        ii = year_list.index(year)
+                        start_hydro_index = hydro_index_list[ii][0]
+                        end_hydro_index = hydro_index_list[ii][1]
+
+                        iii = hydro_unique_index_list.index(hydro_index_list[ii])
+                        dis_to_start_station = inform_list[iii][2]
+                        dis_to_end_station = inform_list[iii][3]
+
+                        start_cs = cs_list[hydro_pos.index(start_hydro_index)]
+                        end_cs = cs_list[hydro_pos.index(end_hydro_index)]
+
+                        wl_start = np.array(thal.hydro_inform_dic[start_cs][thal.hydro_inform_dic[start_cs]['year'] == year]['water_level/m'])
+                        wl_end = np.array(thal.hydro_inform_dic[end_cs][thal.hydro_inform_dic[end_cs]['year'] == year]['water_level/m'])
+
+                        if wl_start.shape[0] != wl_end.shape[0]:
+                            raise ValueError(f'The water level of {cs_list[end_hydro_index]} and {cs_list[start_hydro_index]} in year {str(year)} is not consistent')
+                        else:
+                            if factor == 1:
+                                wl_pos = wl_start - (wl_end - wl_start) * dis_to_start_station / (dis_to_end_station - dis_to_start_station)
+                            elif factor == 2:
+                                wl_pos = wl_start + (wl_end - wl_start) * dis_to_start_station / (dis_to_start_station - dis_to_end_station)
+                            elif factor == 3:
+                                wl_pos = wl_start + (wl_end - wl_start) * dis_to_start_station / (dis_to_start_station + dis_to_end_station)
+
+                        yearly_wl[str(year) + '_wl'].append([year, start_cs, end_cs, dis_to_start_station, dis_to_end_station])
+
+                elif isinstance(thal.smoothed_Thalweg, LineString):
+
+                    nearest_p = nearest_points(Point([coord_x, coord_y]), thal.smoothed_Thalweg)[1]
+                    start_vertex_index = determin_start_vertex_of_point(nearest_p, thal.smoothed_Thalweg)
+
+                    factor = None
+                    hydro_index_list, year_list = [], []
+                    for year in year_range:
+                        start_hydro_index = copy.deepcopy(start_vertex_index)
+                        end_hydro_index = copy.deepcopy(start_vertex_index + 1)
+
+                        if start_hydro_index < min(hydro_pos):
+                            factor = 1
+                            start_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] >= start_hydro_index]
+                            if len(start_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                start_hydro_index = min(start_hydro_index_list)
+
+                            end_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] > start_hydro_index]
+                            if len(end_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                end_hydro_index = min(end_hydro_index_list)
+
+                        elif end_hydro_index > max(hydro_pos):
+                            factor = 2
+                            end_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] <= end_hydro_index]
+                            if len(end_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                end_hydro_index = max(end_hydro_index_list)
+
+                            start_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] < end_hydro_index]
+                            if len(start_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                start_hydro_index = max(start_hydro_index_list)
+
+                        else:
+                            factor = 3
+                            start_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] <= start_hydro_index]
+                            end_hydro_index_list = [hydro_pos_temp[i] for i in range(len(hydro_pos_temp)) if year in year_domain[i] and hydro_pos_temp[i] >= end_hydro_index]
+
+                            if len(start_hydro_index_list) == 0 or len(end_hydro_index_list) == 0:
+                                raise Exception('Code Error!')
+                            else:
+                                start_hydro_index = max(start_hydro_index_list)
+                                end_hydro_index = min(end_hydro_index_list)
+
+                        year_list.append(year)
+                        hydro_index_list.append([start_hydro_index, end_hydro_index])
+
+                    hydro_unique_index_list = np.unique(np.array(hydro_index_list), axis=0).tolist()
+                    for _ in hydro_unique_index_list:
+
+                        start_hydro_index = _[0]
+                        end_hydro_index = _[1]
+                        dis_to_start_station = dis2points_via_line(nearest_p, [thal.smoothed_Thalweg.coords[start_hydro_index][0], thal.smoothed_Thalweg.coords[start_hydro_index][1]], thal.smoothed_Thalweg)
+                        dis_to_end_station = dis2points_via_line(nearest_p, [thal.smoothed_Thalweg.coords[end_hydro_index][0], thal.smoothed_Thalweg.coords[end_hydro_index][1]], thal.smoothed_Thalweg)
+
+                        start_cs = cs_list[hydro_pos.index(start_hydro_index)]
+                        end_cs = cs_list[hydro_pos.index(end_hydro_index)]
+
+                        year_unique_list = [year_list[__] for __ in range(len(hydro_index_list)) if hydro_index_list[__] == _]
+                        if max(year_unique_list) - min(year_unique_list) == len(year_unique_list) - 1:
+                            wl_start_series = (thal.hydro_inform_dic[start_cs]['year'] >= min(year_unique_list)) & (thal.hydro_inform_dic[start_cs]['year'] <= max(year_unique_list))
+                            wl_end_series = (thal.hydro_inform_dic[end_cs]['year'] >= min(year_unique_list)) & (thal.hydro_inform_dic[end_cs]['year'] <= max(year_unique_list))
+                        else:
+                            wl_start_series, wl_end_series = None, None
+                            for year in year_unique_list:
+                                if wl_start_series is None:
+                                    wl_start_series = (thal.hydro_inform_dic[start_cs]['year'] == year)
+                                else:
+                                    wl_start_series = wl_start_series | (thal.hydro_inform_dic[start_cs]['year'] == year)
+
+                                if wl_end_series is None:
+                                    wl_end_series = (thal.hydro_inform_dic[end_cs]['year'] == year)
+                                else:
+                                    wl_end_series = wl_end_series | (thal.hydro_inform_dic[end_cs]['year'] == year)
+
+                        wl_start = thal.hydro_inform_dic[start_cs][wl_start_series]['water_level/m'].reset_index(drop=True)
+                        wl_end = thal.hydro_inform_dic[end_cs][wl_end_series]['water_level/m'].reset_index(drop=True)
+
+                        if wl_start.shape[0] != wl_end.shape[0]:
+                            raise ValueError(f'The water level of {cs_list[hydro_pos.index(start_hydro_index)]} and {cs_list[hydro_pos.index(end_hydro_index)]} in year {str(year)} is not consistent')
+                        else:
+                            if factor == 1:
+                                wl_pos = wl_start - (wl_end - wl_start) * dis_to_start_station / (dis_to_end_station - dis_to_start_station)
+                            elif factor == 2:
+                                wl_pos = wl_start + (wl_end - wl_start) * dis_to_start_station / (dis_to_start_station - dis_to_end_station)
+                            elif factor == 3:
+                                wl_pos = wl_start + (wl_end - wl_start) * dis_to_start_station / (dis_to_start_station + dis_to_end_station)
+
+                        for year_temp in year_unique_list:
+                            yearly_wl[str(year) + '_wl'].append([year_temp, start_cs, end_cs, dis_to_start_station, dis_to_end_station])
+                else:
+                    raise Exception('Code Error')
+                pbar.update()
+
+        for year in year_range:
+            df[str(year) + '_wl'] = yearly_wl[str(year) + '_wl']
+        return df
+    except:
+        print(traceback.format_exc())
 
 
 def flood_frequency_based_hypsometry(df: pd.DataFrame, thal, year_range, geotransform: list, cs_list: list, hydro_pos: list, hydro_datacube: bool):
@@ -802,6 +1032,60 @@ def retrieve_correct_filename(file_name: str):
                             pass
 
                 return None
+
+    def hydrodc_csv2matrix(hydroinform_df, hydroinform_dic, Xsize, Ysize, year):
+
+        # Check if hydro station data is import
+        if hydroinform_dic is None:
+            raise Exception('Please input the hydro inform first')
+
+        # Get the year list and array size
+        hydro_inform = list(hydroinform_df['yearly_wl'])
+        hydro_inform_list = []
+        hydro_list = []
+        hydro_temp = {}
+        for _ in hydroinform_dic.keys():
+            hydro_temp[_] = list(hydroinform_dic[_][hydroinform_dic[_]['year'] == year]['water_level/m'])
+        hydro_list.append(hydro_temp)
+
+        # Define the matrix
+        mem = psutil.virtual_memory().available
+        if hydroinform_df.shape[0] / (Xsize * Ysize) < 0.2 or Xsize * Ysize * 4 * 365 > psutil.virtual_memory().available:
+            if not os.path.exists(f'{outputfolder}{str(year)}\\SMsequence.npz.npy'):
+                # Define the sparse matrix
+                doy_list = [year * 1000 + _ for _ in range(1, datetime(year=year + 1, month=1, day=1).toordinal() - datetime(year=year, month=1, day=1).toordinal() + 1)]
+                sm_list = [sm.lil_matrix((Ysize, Xsize)) for _ in range(len(doy_list))]
+
+                with tqdm(total=len(hydro_inform), desc=f'Generate hydro datacube',
+                          bar_format='{l_bar}{bar:24}{r_bar}{bar:-24b}') as pbar:
+                    for _ in range(len(hydro_inform)):
+                        y, x = int(y_l[_]), int(x_l[_])
+                        # print(str(y) + str(x))
+                        wl_start_series = np.array(hydro_dic[hydro_inform[_][1]])
+                        wl_end_series = np.array(hydro_dic[hydro_inform[_][2]])
+                        # print(str(wl_start_series))
+                        wl_start_dis = hydro_inform[_][3]
+                        wl_end_dis = hydro_inform[_][4]
+                        wl_inter = wl_start_series + (wl_end_series - wl_start_series) * wl_start_dis / (
+                                    wl_start_dis + wl_end_dis)
+                        # print(str(wl_inter))
+                        # print(str(wl_end_dis))
+                        for __ in range(len(wl_inter)):
+                            sm_list[__][y, x] = wl_inter[__]
+                        pbar.update()
+
+                print(f'Start saving the hydro datacube of year {str(year)}!')
+                st = time.time()
+                # for _ in range(len(sm_list)):
+                #     sm_list[_] = sm_list[_].tocsr()
+                ND_temp = NDSparseMatrix(*sm_list, SM_namelist=doy_list)
+                ND_temp.save(f'{outputfolder}{str(year)}\\')
+                print(f'Finish saving the hydro datacube of year {str(year)} in {str(time.time() - st)}!')
+
+        else:
+            doy_list = [year * 1000 + _ for _ in range(1, datetime(year=year + 1, month=1, day=1).toordinal() - datetime(year=year, month=1, day=1).toordinal() + 1)]
+            dc = np.zeros((Ysize, Xsize, len(doy_list))) * np.nan
+            np.save(f'{outputfolder}{str(year)}\\', dc)
 
 
 def get_value_through_river_crosssection(num, coord, slope, nodata, itr, tiffile, length, outputfolder, limit=10000):

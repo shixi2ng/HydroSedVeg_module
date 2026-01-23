@@ -21,6 +21,6 @@ if __name__ == '__main__':
         wl1.import_from_standard_excel(fn_, cs_, water_level_offset=wl_)
     wl1.to_csvs()
 
-    hc = HydroDatacube()
+    hc = HydroDC()
     hc.merge_hydro_inform(wl1)
     hc.hydrodc_csv2matrix('D:\\Hydrodatacube\\',  'D:\\Hydrodatacube\\hydro_dc_X_16357_Y_4827_pretgd.csv')

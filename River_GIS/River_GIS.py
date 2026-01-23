@@ -1,4 +1,5 @@
-from River_GIS.utils import *
+from .__init__ import *
+from .utils import *
 import time
 import numpy as np
 from osgeo import gdal, osr
@@ -31,7 +32,7 @@ topts = gdal.TranslateOptions(creationOptions=['COMPRESS=LZW', 'PREDICTOR=2'])
 
 
 def multiple_concept_model(year, thal, ):
-    hydrodc1 = HydroDatacube()
+    hydrodc1 = HydroDC()
     hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
     hydrodc1.simplified_conceptual_inundation_model(
         'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_pretgd4model.TIF', thal,
@@ -69,6 +70,9 @@ class HydroStationDS (object):
 
         # Define the work path
         self.work_env = None
+        self._reset_property()
+
+    def _reset_property(self):
 
         # Define the property
         self.hydrostation_id_list = []
@@ -86,20 +90,21 @@ class HydroStationDS (object):
         # Metadata key
         self._metadata_key = ['hydrostation_name', 'crosssection_name', 'waterlevel_offset', 'measured_metric', 'tributary_indicator']
 
-    def import_from_standard_files(self, standard_file_folder: str, metadata_file: str, work_env: str= None):
+    def from_original_csvs(self, original_file_folder: str, metadata_file: str, work_env: str= None):
         """
-        Import the hydrostation data from standard files
-        :param standard_file_folder: folders including the standard files
+        Import the hydrostation data from original files collected from CJH
+        :param original_file_folder: folders including the original files collected from CJH
         :param metadata_file: metadata file including the water level offset, corresponding cross-section, hydrological or hydrometric station indicator
-        :param work_env: Folder for output or the default folder from standard file folder is generated
+        :param work_env: Folder for output otherwise the default folder will be adopted
         """
 
+        self._reset_property()
         # Update the work env
         if work_env is not None and os.path.isdir(work_env):
             bf.create_folder(work_env)
             self.work_env = work_env
         else:
-            self.work_env = bf.Path(os.path.dirname(standard_file_folder)).path_name
+            self.work_env = bf.Path(os.path.dirname(original_file_folder)).path_name
 
         # Identify if the metadata file is valid or not
         if os.path.exists(metadata_file):
@@ -119,7 +124,7 @@ class HydroStationDS (object):
             self.hydrostation_metadata_df = self.hydrostation_metadata_df[self._metadata_key]
 
         # Get all the standard file from standard file folder
-        standard_files = bf.file_filter(standard_file_folder, ['.csv', '.xls'], and_or_factor='or', exclude_word_list=['$'], subfolder_detection=False)
+        standard_files = bf.file_filter(original_file_folder, ['.csv', '.xls'], and_or_factor='or', exclude_word_list=['$'], subfolder_detection=False)
         for file_name in standard_files:
             try:
                 # Read the sheet
@@ -293,7 +298,8 @@ class HydroStationDS (object):
                 print(traceback.format_exc())
                 print(f'Err during process the {str(file_name)}')
 
-    def to_csvs(self, output_path: str = None):
+
+    def to_std_csvs(self, output_path: str = None):
 
         # Export 2 shpfile
         if output_path is None:
@@ -314,8 +320,14 @@ class HydroStationDS (object):
             else:
                 raise TypeError('Code input wrong type hydrological df!')
 
-    def cs_wl(self, thal, cs_name, date_, ):
 
+    def print_CS_WL(self, thal, cs_name, date_, ):
+        """
+        Print the water level for a cross section at some date
+        :param thal:
+        :param cs_name:
+        :param date_:
+        """
         global wl_st_dis
         if isinstance(date_, int) and 19000000 < date_ < 21000000:
             year_ = date_ // 10000
@@ -365,7 +377,102 @@ class HydroStationDS (object):
             print(f'{str(cs_name)}__{str(date_)}')
             print(f'{str(wl_out)}')
 
-    def annual_runoff_sediment(self, station_name, output_folder):
+
+    def to_HydroDC(self, thalweg_temp: 'Thalweg', roi_binary_tif: str, year_list: list,
+                   output_path: str = None, multiprocess: bool = True):
+
+        """
+        Generate yearly HydroDatacube from HydroStationDS using a thalweg and ROI binary tif.
+        :param thalweg_temp: Thalweg instance
+        :param roi_binary_tif: binary tif representing ROI (1 = valid, 0 = invalid)
+        :param year_list: list of years to generate
+        :param output_path: output folder for HydroDC
+        :param multiprocess: use multi-processing in flood-frequency step
+        """
+
+        if not isinstance(thalweg_temp, Thalweg):
+            raise TypeError('Please input the thalweg with right type!')
+
+        if not isinstance(year_list, list) or False in [isinstance(_, int) for _ in year_list]:
+            raise TypeError('Please input the year list with right type!')
+
+        if output_path is None:
+            output_path = thalweg_temp.work_env + 'hydro_dc\\'
+        else:
+            output_path = bf.Path(output_path).path_name
+        bf.create_folder(output_path)
+
+        if 'hydro_inform_dic' not in thalweg_temp.__dict__.keys():
+            thalweg_temp.merged_hydro_inform(self)
+
+        # Process cross section inform
+        cs_list, year_domain, hydro_pos = [], [], []
+        if thalweg_temp.smoothed_Thalweg is None:
+            for _ in range(len(thalweg_temp.Thalweg_cs_namelist)):
+                if thalweg_temp.Thalweg_cs_namelist[_] in thalweg_temp.hydro_inform_dic.keys():
+                    year_domain.append(np.unique(
+                        np.array(thalweg_temp.hydro_inform_dic[thalweg_temp.Thalweg_cs_namelist[_]]['year'])).tolist())
+                    hydro_pos.append(_)
+                    cs_list.append(thalweg_temp.Thalweg_cs_namelist[_])
+
+        elif isinstance(thalweg_temp.smoothed_Thalweg, LineString):
+            for _ in range(len(thalweg_temp.Thalweg_cs_namelist)):
+                pos = thalweg_temp.smoothed_cs_index[_]
+                if thalweg_temp.Thalweg_cs_namelist[_] in thalweg_temp.hydro_inform_dic.keys():
+                    year_domain.append(np.unique(
+                        np.array(thalweg_temp.hydro_inform_dic[thalweg_temp.Thalweg_cs_namelist[_]]['year'])).tolist())
+                    hydro_pos.append(pos)
+                    cs_list.append(thalweg_temp.Thalweg_cs_namelist[_])
+
+        else:
+            raise TypeError('The smoothed thalweg is not under the correct type')
+
+        # Import ROI tif
+        if not isinstance(roi_binary_tif, str):
+            raise TypeError('The ROI tif should be a TIF file')
+        if not roi_binary_tif.endswith('.TIF') and not roi_binary_tif.endswith('.tif'):
+            raise TypeError('The ROI tif should be a TIF file')
+
+        try:
+            ds_temp = gdal.Open(roi_binary_tif)
+            srs_temp = retrieve_srs(ds_temp)
+            if int(srs_temp.split(':')[-1]) != thalweg_temp.crs.to_epsg():
+                gdal.Warp('/vsimem/temp1.TIF', ds_temp, )
+                ds_temp = gdal.Open('/vsimem/temp1.TIF')
+            [ul_x, x_res, xt, ul_y, yt, y_res] = ds_temp.GetGeoTransform()
+            arr = ds_temp.GetRasterBand(1).ReadAsArray()
+        except:
+            raise ValueError('The ROI tif file is problematic!')
+
+        # Process the ROI map
+        valid_mask = np.logical_and(~np.isnan(arr), arr > 0)
+        arr_pd = np.argwhere(valid_mask)
+        arr_pd = pd.DataFrame(arr_pd, columns=['y', 'x'])
+        arr_pd = arr_pd.sort_values(['x', 'y'], ascending=[True, True]).reset_index(drop=True)
+
+        # Generate the portion
+        cpu_amount = int(os.cpu_count() * configuration['multiprocess_ratio'])
+        arr_pd_list, indi_size = [], int(np.ceil(arr_pd.shape[0] / cpu_amount))
+        for i_size in range(cpu_amount):
+            if i_size != cpu_amount - 1:
+                arr_pd_list.append(arr_pd[indi_size * i_size: indi_size * (i_size + 1)])
+            else:
+                arr_pd_list.append(arr_pd[indi_size * i_size: -1])
+
+        with concurrent.futures.ProcessPoolExecutor() as exe:
+            res = exe.map(hydro_wl_interpolation, arr_pd_list, repeat(thalweg_temp), repeat(year_list),
+                          repeat([ul_x, x_res, ul_y, y_res]), repeat(cs_list), repeat(hydro_pos))
+        res = list(res)
+        res_df = pd.concat(res, axis=0, ignore_index=True)
+        res_df.reset_index(drop=True, inplace=True)
+
+        # Generate annual water level
+        for year_ in year_list:
+            annual_df = res_df[["y", "x", f'{str(year_)})_wl']].copy()
+
+
+
+    def print_annual_runoff_sediment(self, station_name, output_folder):
 
         s = [int(_) for _ in self.hydrostation_id_list]
         if station_name not in self.hydrostation_name_list:
@@ -592,9 +699,52 @@ class HydroStationDS (object):
         fig_temp = None
         ax_temp = None
 
-    def load_csvs(self, csv_filelist):
-        for _ in csv_filelist:
-            pass
+
+    def from_std_csvs(self, standard_file_folder: str, work_env: str = None):
+        """
+        Import hydrostation data from csvs exported by to_csvs.
+        :param standard_file_folder: folder containing standard csv files
+        :param work_env: optional output folder
+        """
+
+        self._reset_property()
+        # Update the work env
+        if work_env is not None and os.path.isdir(work_env):
+            bf.create_folder(work_env)
+            self.work_env = work_env
+        else:
+            self.work_env = bf.Path(os.path.dirname(standard_file_folder)).path_name
+
+        if not os.path.isdir(standard_file_folder):
+            raise ValueError('The standard_file_folder is not existed!')
+
+        standard_files = bf.file_filter(standard_file_folder, ['.csv'], and_or_factor='or', exclude_word_list=['$'], subfolder_detection=False)
+        for file_name in standard_files:
+            try:
+                file_base = os.path.basename(file_name)
+                file_core = file_base.rsplit('.', 1)[0]
+                file_parts = file_core.split('_')
+                if len(file_parts) < 4:
+                    raise ValueError('Please make sure the filename is under id_stationname_csname_offset.csv format!')
+
+                hydrometric_id = int(file_parts[0]) if file_parts[0].isnumeric() else 0
+                station_name = file_parts[1]
+                cs_name = file_parts[2]
+                try:
+                    water_level_offset = float(file_parts[3])
+                except ValueError:
+                    water_level_offset = np.nan
+
+                df_temp = pd.read_csv(file_name, encoding='utf-8')
+                self.hydrostation_id_list.append(hydrometric_id)
+                self.hydrostation_name_list.append(station_name)
+                self.crosssection_name_list.append(cs_name)
+                self.waterlevel_offset_list.append(np.float32(water_level_offset) if not np.isnan(water_level_offset) else np.nan)
+                self.hydrostation_inform_df[station_name] = df_temp
+            except:
+                print(traceback.format_exc())
+                print(f'Err during process the {str(file_name)}')
+
 
     def to_FlwBound41DHM(self, output_csv: str, date_range: list, inlet_station: str, outlet_station: str, outlet_type: str, tributary_index: bool = True):
 
@@ -735,7 +885,7 @@ class HydroStationDS (object):
         # df_.to_csv(initflow_csv, index=False, encoding='gbk')
 
 
-class HydroDatacube(object):
+class HydroDC(object):
 
     def __init__(self):
 
@@ -762,124 +912,6 @@ class HydroDatacube(object):
             self.hydro_inform_dic[_] = hydro_ds.hydrostation_inform_df[hydro_ds.hydrostation_name_list[hydro_ds.crosssection_name_list.index(_)]]
             self.hydro_inform_dic[_]['water_level/m'] = self.hydro_inform_dic[_]['water_level/m'] - wl_offset
 
-    def hydrodc_csv2matrix(self, outputfolder, hydroinform_csv):
-
-        # Check if hydro station data is import
-        if self.hydro_inform_dic is None:
-            raise Exception('Please input the hydro inform first')
-
-        # Check the output folder
-        if not os.path.exists(outputfolder):
-            bf.create_folder(outputfolder)
-            outputfolder = bf.Path(outputfolder).path_name
-
-        # Import hydroinform_csv
-        if isinstance(hydroinform_csv, str):
-            if not os.path.exists(hydroinform_csv):
-                raise ValueError(f'The {str(hydroinform_csv)} does not exist!')
-            elif hydroinform_csv.endswith('.xlsx') or hydroinform_csv.endswith('.xls'):
-                hydroinform_df = pd.read_excel(hydroinform_csv)
-            elif hydroinform_csv.endswith('.csv'):
-                hydroinform_df = pd.read_csv(hydroinform_csv)
-            else:
-                raise TypeError(f'The hydroinform_csv should be a xlsx!')
-        else:
-            raise TypeError(f'The {str(hydroinform_csv)} should be a str!')
-
-        # Read the header
-        if hydroinform_csv.split('\\')[-1].startswith('hydro_dc'):
-            try:
-                Xsize, Ysize = int(hydroinform_csv.split('\\')[-1].split('_X_')[1].split('_')[0]), int(hydroinform_csv.split('\\')[-1].split('_Y_')[1].split('_')[0])
-                header = hydroinform_csv.split(str(Ysize))[1].split('.')[0]
-            except:
-                raise Exception('Please make sure the file name is not manually changed')
-        else:
-            raise Exception('Please make sure the file name is not manually changed')
-
-        # Get the year list
-        hydroinform_df_list = []
-        cpu_amount = os.cpu_count()
-        size = int(np.ceil(hydroinform_df.shape[0] / cpu_amount))
-        for _ in range(cpu_amount):
-            if _ != cpu_amount - 1:
-                hydroinform_df_list.append(list(hydroinform_df['yearly_wl'][_ * size: (_ + 1) * size]))
-            else:
-                hydroinform_df_list.append(list(hydroinform_df['yearly_wl'][_ * size: ]))
-
-        with concurrent.futures.ProcessPoolExecutor() as exe:
-            res = exe.map(process_hydroinform_df, hydroinform_df_list)
-
-        yearly_hydroinform_all = []
-        res = list(res)
-        for _ in res:
-            yearly_hydroinform_all.extend(_)
-        hydroinform_df['yearly_wl'] = yearly_hydroinform_all
-
-        # Get the year list and array size
-        x_list, y_list = [], []
-        year_list = [int(_[0]) for _ in yearly_hydroinform_all[0]]
-        hydro_inform = list(hydroinform_df['yearly_wl'])
-        hydro_inform_list = []
-        for year in year_list:
-            yearly_hydro = []
-            with tqdm(total=len(hydro_inform), desc=f'Relist hydro inform of year {str(year)}', bar_format='{l_bar}{bar:24}{r_bar}{bar:-24b}') as pbar:
-                for _ in hydro_inform:
-                    # xy_list = [hydroinform_df['y'][hydro_inform.index(_)], hydroinform_df['x'][hydro_inform.index(_)]]
-                    year_temp = _[year_list.index(year)]
-                    # year_list.extend(xy_list)
-                    yearly_hydro.append(year_temp)
-                    pbar.update()
-                hydro_inform_list.append(yearly_hydro)
-            x_list.append(list(hydroinform_df['x']))
-            y_list.append(list(hydroinform_df['y']))
-
-        hydro_list = []
-        for year in year_list:
-            hydro_temp = {}
-            for _ in self.hydro_inform_dic.keys():
-                hydro_temp[_] = list(self.hydro_inform_dic[_][self.hydro_inform_dic[_]['year'] == year]['water_level/m'])
-            hydro_list.append(hydro_temp)
-
-        # Define the matrix
-        mem = psutil.virtual_memory().available
-        if hydroinform_df.shape[0] / (4827 * 16357) < 0.2 or Xsize * Ysize * 4 * 365 > psutil.virtual_memory().available:
-            for year, hydro_dic, hydro_inform, x_l, y_l in zip(year_list, hydro_list, hydro_inform_list, x_list, y_list):
-                if not os.path.exists(f'{outputfolder}{str(year)}\\SMsequence.npz.npy'):
-                    # Define the sparse matrix
-                    doy_list = [year * 1000 + _ for _ in range(1, datetime(year=year + 1, month=1, day=1).toordinal() - datetime(year=year, month=1, day=1).toordinal() + 1)]
-                    sm_list = [sm.lil_matrix((Ysize, Xsize)) for _ in range(len(doy_list))]
-
-                    with tqdm(total=len(hydro_inform), desc=f'Generate hydro datacube',
-                              bar_format='{l_bar}{bar:24}{r_bar}{bar:-24b}') as pbar:
-                        for _ in range(len(hydro_inform)):
-                            y, x = int(y_l[_]), int(x_l[_])
-                            # print(str(y) + str(x))
-                            wl_start_series = np.array(hydro_dic[hydro_inform[_][1]])
-                            wl_end_series = np.array(hydro_dic[hydro_inform[_][2]])
-                            # print(str(wl_start_series))
-                            wl_start_dis = hydro_inform[_][3]
-                            wl_end_dis = hydro_inform[_][4]
-                            wl_inter = wl_start_series + (wl_end_series - wl_start_series) * wl_start_dis / (
-                                        wl_start_dis + wl_end_dis)
-                            # print(str(wl_inter))
-                            # print(str(wl_end_dis))
-                            for __ in range(len(wl_inter)):
-                                sm_list[__][y, x] = wl_inter[__]
-                            pbar.update()
-
-                    print(f'Start saving the hydro datacube of year {str(year)}!')
-                    st = time.time()
-                    # for _ in range(len(sm_list)):
-                    #     sm_list[_] = sm_list[_].tocsr()
-                    ND_temp = NDSparseMatrix(*sm_list, SM_namelist=doy_list)
-                    ND_temp.save(f'{outputfolder}{str(year)}\\')
-                    print(f'Finish saving the hydro datacube of year {str(year)} in {str(time.time() - st)}!')
-
-        else:
-            for year, hydro_dic, hydro_inform in zip(year_list, hydro_list, hydro_inform_list):
-                doy_list = [year * 1000 + _ for _ in range(1, datetime(year=year + 1, month=1, day=1).toordinal() - datetime(year=year, month=1, day=1).toordinal() + 1)]
-                dc = np.zeros((Ysize, Xsize, len(doy_list))) * np.nan
-                np.save(f'{outputfolder}{str(year)}\\', dc)
 
     def from_hydromatrix(self, filepath):
 
@@ -1367,7 +1399,7 @@ class Thalweg(object):
         # Define the property of cross section
         self.crs = None
 
-    def _generate_thalweg_slope(self):
+    def _generate_Thalweg_slope(self):
 
         # Generate the slope of each line
         if self.Thalweg_Linestring is None:
@@ -1638,7 +1670,7 @@ class Thalweg(object):
     #     thalweg_temp._extract_Thalweg_geodf()
     #     return thalweg_temp
 
-    def load_smooth_Thalweg_shp(self, shpfile):
+    def from_smooth_Thalweg_shp(self, shpfile):
 
         # Check the shapefile existence
         if isinstance(shpfile, str):
@@ -1685,9 +1717,9 @@ class Thalweg(object):
                     self.smoothed_Thalweg = LineString(smoothed_thalweg_list)
             # geodf = gp.GeoDataFrame(data=[{'a': 'b'}], geometry=[thalweg_temp.smoothed_Thalweg])
             # geodf.to_file('G:\A_Landsat_Floodplain_veg\Water_level_python\\a.shp')
-        self._generate_thalweg_slope()
+        self._generate_Thalweg_slope()
 
-    def load_geojson(self, geodf_json):
+    def from_geojson(self, geodf_json):
 
         # Process work env
         self.work_env = bf.Path(os.path.dirname(os.path.dirname(geodf_json))).path_name
@@ -1705,16 +1737,16 @@ class Thalweg(object):
 
         # # Check the cs json existence
         try:
-            cs_json = os.path.dirname(geodf_json) + '\\CrossSection.json'
+            cs_json = os.path.dirname(geodf_json) + '\\CSprofile.json'
         except:
             print(traceback.format_exc())
             raise Exception('The cs json can not be generated!')
 
         if isinstance(cs_json, str):
             if not os.path.exists(cs_json):
-                raise ValueError(f"The CrossSection json does not exist!")
+                raise ValueError(f"The CSprofile json does not exist!")
             elif cs_json.endswith('.json'):
-                self.original_cs = CrossSection()
+                self.original_cs = CSprofile()
                 self.original_cs = self.original_cs.from_geojson(cs_json)
             else:
                 raise TypeError(f'The cs_json file should be a json!')
@@ -1723,7 +1755,7 @@ class Thalweg(object):
 
         # Extract information from geodf
         self._extract_Thalweg_geodf()
-        self._generate_thalweg_slope()
+        self._generate_Thalweg_slope()
         return self
 
     def to_geojson(self,  output_path: str = None):
@@ -1740,7 +1772,7 @@ class Thalweg(object):
             self.Thalweg_geodf['cs_namelist'] = self.Thalweg_geodf['cs_namelist'].astype(str)
             self.Thalweg_geodf.to_file(output_path + 'thalweg.json', driver='GeoJSON')
 
-        if isinstance(self.original_cs, CrossSection):
+        if isinstance(self.original_cs, CSprofile):
             self.original_cs.to_geojson(output_path)
 
     def to_shapefile(self,  output_path: str = None):
@@ -1757,7 +1789,7 @@ class Thalweg(object):
             self.Thalweg_geodf['cs_namelist'] = self.Thalweg_geodf['cs_namelist'].astype(str)
             self.Thalweg_geodf.to_file(output_path + 'thalweg.shp', encoding='utf-8')
 
-        if isinstance(self.original_cs, CrossSection):
+        if isinstance(self.original_cs, CSprofile):
             self.original_cs.to_shpfile(output_path)
 
     def merged_hydro_inform(self, hydro_ds: HydroStationDS):
@@ -1914,7 +1946,7 @@ class Flood_freq_based_hyspometry_method(object):
         #     year_m = ndsm(*matrix_list, SM_namelist=doy_list)
         #     year_m.save(thalweg_temp.work_env + f'yearly_wl\\{str(year)}\\')
 
-    def refine_annual_topography(self, thalweg_temp, inun_dc: Landsat_dc, hydro_dc: HydroDatacube, elevation_map: str = None):
+    def refine_annual_topography(self, thalweg_temp, inun_dc: Landsat_dc, hydro_dc: HydroDC, elevation_map: str = None):
 
         if self.work_env is None:
             self.work_env = thalweg_temp.work_env
@@ -2064,9 +2096,9 @@ class Flood_freq_based_hyspometry_method(object):
             # Method 4
 
 
-class CrossSection(object):
+class CSprofile(object):
 
-    # CrossSection contains the Profile of cross-sections from the following several aspects:
+    # CSprofile contains the Profile of cross-sections from the following several aspects:
     # 0 The name of each cross-section (Key element \\ import from all files)
     # 1 The distance to left bank of each node for each cross-section (Essential \\ import from standard cs file)
     # 2 The elevation profile of each node (Essential \\ import from standard cs file)
@@ -2108,7 +2140,7 @@ class CrossSection(object):
         self.cross_section_diff = None
         self.cross_section_diff_geometry = None
 
-    def _consistent_cross_section_inform(self):
+    def _consistent_CSprofile(self):
 
         # Consistent all inform imported from the standard xlsx
         if self.cross_section_name != list(self.cross_section_ele.keys()) or self.cross_section_ele.keys() != list(self.cross_section_dis.keys()):
@@ -2168,7 +2200,7 @@ class CrossSection(object):
     def _construct_geodf(self):
 
         # Consistent the dem, distance and name list
-        self._consistent_cross_section_inform()
+        self._consistent_CSprofile()
         self.cross_section_num = len(self.cross_section_name)
 
         # Generate the geodataframe
@@ -2204,7 +2236,7 @@ class CrossSection(object):
         if self.crs is not None:
             self.cross_section_geodf = self.cross_section_geodf.set_crs(self.crs)
 
-    def _extract_from_geodf(self):
+    def _extract_geodf(self):
 
         # Detect if the geodf consists adequate information
         try:
@@ -2301,7 +2333,7 @@ class CrossSection(object):
                 elif geodf_json.endswith('.json'):
                     self.cross_section_geodf = gp.read_file(geodf_json)
                 else:
-                    raise TypeError(f'It is not a valid geojson file for CrossSection!')
+                    raise TypeError(f'It is not a valid geojson file for CSprofile!')
             else:
                 raise TypeError(f'The {str(geodf_json)} should be a str!')
         except:
@@ -2309,7 +2341,7 @@ class CrossSection(object):
             raise IOError('Some error occurred during the import of geojson file for Cross section')
 
         # import from geodf
-        self._extract_from_geodf()
+        self._extract_geodf()
         return self
 
     def import_CS_coords(self, coordinate_files: str, epsg_crs: str):
@@ -2408,21 +2440,117 @@ class CrossSection(object):
         self.control_station_cs_list = [hydro_ds.hydrostation_name_list, hydro_ds.crosssection_name_list]
         self._construct_geodf()
 
-    def automatic_label_cs(self, inundation_frequency_tif: str):
+    # def automatic_label_cs(self, inundation_frequency_tif: str):
+    #
+    #     # Load inundation frequency file
+    #     if isinstance(inundation_frequency_tif, str):
+    #         if not os.path.exists(inundation_frequency_tif):
+    #             raise ValueError(f'The {str(inundation_frequency_tif)} does not exist!')
+    #         elif inundation_frequency_tif.endswith('.tif') or inundation_frequency_tif.endswith('.TIF'):
+    #             if_ds = gdal.Open()
+    #             if_raster
+    #         elif tributary_files.endswith('.csv'):
+    #             tributary_file_df = pd.read_csv(tributary_files)
+    #         else:
+    #             raise TypeError(f'The dem xlsx file should be a xlsx!')
+    #     else:
+    #         raise TypeError(f'The {str(tributary_files)} should be a str!')
 
-        # Load inundation frequency file
-        if isinstance(inundation_frequency_tif, str):
-            if not os.path.exists(inundation_frequency_tif):
-                raise ValueError(f'The {str(inundation_frequency_tif)} does not exist!')
-            elif inundation_frequency_tif.endswith('.tif') or inundation_frequency_tif.endswith('.TIF'):
-                if_ds = gdal.Open()
-                if_raster
-            elif tributary_files.endswith('.csv'):
-                tributary_file_df = pd.read_csv(tributary_files)
+    def from_CSProf41DHM(self, csprof_file: str, epsg_crs: str = None):
+
+        # Process work env
+        if self.work_env is None:
+            self.work_env = bf.Path(os.path.dirname(csprof_file)).path_name
+
+        # Load the CSProf file
+        if isinstance(csprof_file, str):
+            if not os.path.exists(csprof_file):
+                raise ValueError(f'The {str(csprof_file)} does not exist!')
+            elif csprof_file.endswith('.csv'):
+                csprof_df = pd.read_csv(csprof_file, header=None, encoding='gbk')
             else:
-                raise TypeError(f'The dem xlsx file should be a xlsx!')
+                raise TypeError('The csprof file should be a csv file!')
         else:
-            raise TypeError(f'The {str(tributary_files)} should be a str!')
+            raise TypeError(f'The {str(csprof_file)} should be a str!')
+
+        if epsg_crs is not None:
+            if not isinstance(epsg_crs, str):
+                raise TypeError('The epsg crs should be a str!')
+            epsg_crs = epsg_crs.lower()
+            if not epsg_crs.startswith('epsg:'):
+                raise ValueError('The epsg crs should start with epsg!')
+            self.crs = epsg_crs
+
+        def _is_number(value):
+            if isinstance(value, (int, float)) and not np.isnan(value):
+                return True
+            if isinstance(value, str):
+                try:
+                    float(value)
+                    return True
+                except ValueError:
+                    return False
+            return False
+
+        def _parse_bool(value):
+            if isinstance(value, str):
+                return value.strip().lower() in ['true', '1', 'yes']
+            if pd.isna(value):
+                return False
+            return bool(value)
+
+        self.cross_section_name = []
+        self.cross_section_ele = {}
+        self.cross_section_dis = {}
+        self.cross_section_tribu = {}
+        self.cross_section_bank_coord = {}
+        self.cross_section_cntrl = {}
+        control_station_name_list = []
+        control_station_cs_list = []
+
+        index = 0
+        while index < csprof_df.shape[0]:
+            row = csprof_df.iloc[index]
+            cs_name = row[0]
+            if isinstance(cs_name, str) and cs_name != 'Id':
+                cs_name = cs_name.strip()
+                cs_distance = float(row[1]) if _is_number(row[1]) else np.nan
+                control_section = _parse_bool(row[2])
+                station_name = row[3] if not pd.isna(row[3]) else None
+                index += 1
+                if index < csprof_df.shape[0] and str(csprof_df.iloc[index, 0]).strip() == 'Id':
+                    index += 1
+
+                dem_list = []
+                while index < csprof_df.shape[0] and _is_number(csprof_df.iloc[index, 0]):
+                    dem_row = csprof_df.iloc[index]
+                    dem_dis = float(dem_row[1]) if _is_number(dem_row[1]) else np.nan
+                    dem_ele = float(dem_row[2]) if _is_number(dem_row[2]) else np.nan
+                    dem_type = dem_row[3]
+                    if pd.isna(dem_type):
+                        dem_list.append([dem_dis, dem_ele])
+                    else:
+                        dem_list.append([dem_dis, dem_ele, dem_type])
+                    index += 1
+
+                self.cross_section_name.append(cs_name)
+                self.cross_section_ele[cs_name] = dem_list
+                self.cross_section_dis[cs_name] = cs_distance
+                self.cross_section_tribu[cs_name] = False
+                self.cross_section_bank_coord[cs_name] = [(np.nan, np.nan), (np.nan, np.nan)]
+                self.cross_section_cntrl[cs_name] = control_section
+
+                if control_section and station_name is not None:
+                    control_station_name_list.append(station_name)
+                    control_station_cs_list.append(cs_name)
+            else:
+                index += 1
+
+        if control_station_name_list:
+            self.control_station_cs_list = [control_station_name_list, control_station_cs_list]
+
+        self._construct_geodf()
+
 
     def to_CSProf41DHM(self, output_path, ROI_name: str=None):
 
@@ -2456,7 +2584,7 @@ class CrossSection(object):
         else:
             std_cs_prof.to_csv(output_path + f"{str(ROI_name)}_CSProf.csv", header=False, index=False, encoding='gbk')
 
-    def generate_differential_cross_profile(self, cross_section2):
+    def compare_CS_diff(self, cross_section2):
 
         # Check the type of input
         if self.cross_section_ele is None:
@@ -2464,7 +2592,7 @@ class CrossSection(object):
         elif self.cross_section_bank_coord is None:
             raise Exception('Please input the bank coordinate before further process!')
 
-        if not isinstance(cross_section2, CrossSection):
+        if not isinstance(cross_section2, CSprofile):
             raise Exception('The differential cross profile only work for two cross section!!')
         elif cross_section2.cross_section_ele is None:
             raise Exception('Please input the cross profiles before further process!')
@@ -2521,7 +2649,7 @@ class CrossSection(object):
                     line_coord.append((bank_coord[0][0] + dem_dis * itr_xdim, bank_coord[0][1] + dem_dis * itr_ydim, diff_list[dem_index][1]))
                 self.cross_section_diff_geometry[_] = LineString(line_coord)
 
-    def compare_inundation_frequency(self, dem_tif: str, year_range: list):
+    def compare_IF(self, dem_tif: str, year_range: list):
 
         # Import dem tif
         if isinstance(dem_tif, str):
@@ -2753,7 +2881,7 @@ class CrossSection(object):
         else:
             pass
 
-    def generate_Thalweg(self):
+    def to_Thalweg(self):
 
         # Check the import inform
         self._check_output_information_()
@@ -2822,7 +2950,7 @@ class CrossSection(object):
         thalweg_ele.Thalweg_geodf = gp.GeoDataFrame(dic, crs=self.cross_section_geodf.crs)
         return thalweg_ele
 
-    def compare_2ddem(self, dem_tif: str, diff_ele=False, inun_freq=None):
+    def compare_2D_DEM(self, dem_tif: str, diff_ele=False, inun_freq=None):
 
         # Check the condition
         if diff_ele is True and (self.cross_section_diff is None or self.cross_section_diff_geometry is None):
@@ -2997,7 +3125,7 @@ class CrossSection(object):
         cross_section_temp = copy.deepcopy(self.cross_section_geodf)
         cross_section_temp['cs_dem'] = cross_section_temp['cs_dem'].astype(str)
         cross_section_temp['cs_bank_coord'] = cross_section_temp['cs_bank_coord'].astype(str)
-        cross_section_temp.to_file(f'{output_path}CrossSection.json', driver='GeoJSON')
+        cross_section_temp.to_file(f'{output_path}CSprofile.json', driver='GeoJSON')
         print('The cross-section information is saved as geojson.')
 
     def to_csv(self, output_path: str = None):
@@ -3011,7 +3139,7 @@ class CrossSection(object):
             output_path = bf.Path(output_path).path_name
 
         bf.create_folder(output_path)
-        self.cross_section_geodf.to_csv(f'{output_path}CrossSection.csv', encoding='GB18030')
+        self.cross_section_geodf.to_csv(f'{output_path}CSprofile.csv', encoding='GB18030')
 
     def to_shpfile(self, output_path: str = None):
 

@@ -16,27 +16,20 @@ if __name__ == '__main__':
     # wl1.to_FlwBound41DHM('G:\\A_1Dflow_sed\\Hydrodynamic_model\\para\\MYR_FlwBound.csv', [20190101, 20191231], '宜昌', '九江', 'Z-T')
     #
     # # Process cross-sectional profile
-    # cs = CrossSection()
+    # cs = CSprofile()
     # cs.from_stdCSfiles('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_csv\\cross_section_DEM_2019_all.csv')
     # cs.merge_Hydrods(wl1)
     # cs.to_CSProf41DHM('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_csv\\')
 
     # Water level import
     wl1 = HydroStationDS()
-    file_list = bf.file_filter('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_water_level\\', ['.xls'])
-    corr_temp = pd.read_csv('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_water_level\\对应表.csv')
-    cs_list, wl_list = [], []
-    for file_ in file_list:
-        for hs_num in range(corr_temp.shape[0]):
-            hs = corr_temp[corr_temp.keys()[1]][hs_num]
-            if hs in file_:
-                cs_list.append(corr_temp[corr_temp.keys()[0]][hs_num])
-                wl_list.append(corr_temp[corr_temp.keys()[2]][hs_num])
+    wl1.from_std_csvs('G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level\standard_csv')
 
-        wl1.import_from_standard_files(fn_, cs_, )
-    wl1.to_csvs()
+    thal1 = Thalweg()
+    thal1 = thal1.from_geojson('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_geojson\\thelwag.json')
+    thal1.load_smooth_Thalweg_shp('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth.shp')
 
-    # hc = HydroDatacube()
+    # hc = HydroDC()
     # hc.merge_hydro_inform(wl1)
     # hc.hydrodc_csv2matrix('G:\\A_Landsat_veg\\Water_level_python\\hydrodatacube\\', 'G:\\A_Landsat_veg\\Water_level_python\\hydrodatacube\\hydro_dc_X_16357_Y_4827_posttgd.csv')
     # hc.hydrodc_csv2matrix('G:\\A_Landsat_veg\\Water_level_python\\hydrodatacube\\', 'G:\\A_Landsat_veg\\Water_level_python\\hydrodatacube\\hydro_dc_X_16357_Y_4827_pretgd.csv')

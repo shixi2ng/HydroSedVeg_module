@@ -103,7 +103,7 @@ def fig2_13():
     plt.rc('axes', linewidth=1)
     markers_by_row = ['s', 'o', '^', 'v', 'D', 'P', 'X']
     wl1 = HydroStationDS()
-    wl1.import_from_standard_files('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\',
+    wl1.from_original_csvs('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\',
                                    'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
 
     # -------- 配置 --------
@@ -606,7 +606,7 @@ def fig2_4():
     plt.rc('axes', linewidth=1)
 
     wl1 = HydroStationDS()
-    wl1.import_from_standard_files('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\',
+    wl1.from_original_csvs('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\',
                                    'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
 
     sec_wl_diff, sec_ds_diff = [], []

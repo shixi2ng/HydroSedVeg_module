@@ -20,7 +20,7 @@ def figS3nc_func():
     plt.rc('axes', linewidth=2)
 
     wl1 = HydroStationDS()
-    wl1.import_from_standard_files('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\', 'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
+    wl1.from_original_csvs('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\', 'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
 
     sec_wl_diff, sec_ds_diff = [], []
     sec_dis = [0, 63.83, 153.87, 306.77, 384.16, 423.15, 653.115, 955]

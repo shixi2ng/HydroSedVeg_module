@@ -6,9 +6,8 @@ from Crawler.crawler_weatherdata import Qweather_dataset
 if __name__ == '__main__':
 
     # # Water level import
-    # wl1 = HydroStationDS()
-    # wl1.import_from_standard_files('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\', 'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
-    # wl1.to_csvs()
+    wl1 = HydroStationDS()
+    wl1.from_std_csvs('G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level\standard_csv\\')
     #
     # # Process the climate date
     # QW_ds = Qweather_dataset('G:\\A_Climatology_dataset\\station_dataset\\Qweather_dataset\\')
@@ -83,8 +82,8 @@ if __name__ == '__main__':
 
     # refine dem
     thal1 = Thalweg()
-    thal1 = thal1.load_geojson('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_geojson\\thelwag.json')
-    # thal1.load_smooth_Thalweg_shp('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth2.shp')
+    thal1 = thal1.from_geojson('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_geojson\\thelwag.json')
+    thal1.from_smooth_Thalweg_shp('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth2.shp')
     # for itr_ in np.linspace(10, 60, 11):
     #     thal1.straighten_river_through_thalweg('G:\\A_Landsat_Floodplain_veg\\Paper\\Fig11\\veg_diff.TIF', itr=int(itr_))
 
@@ -97,13 +96,11 @@ if __name__ == '__main__':
     # for station in ['螺山', '石首(二)', '调玄口', '监利', '广兴洲', '莲花塘', '汉口', '枝城', '陈家湾', '沙市', '郝穴', '新厂(二)']:
     #     wl1.linear_comparison(station, thal1, [2015,2016,2017,2018,2019,2020])
 
-    # hc = HydroDatacube()
-    # hc.merge_hydro_inform(wl1)
-    # hc.from_hydromatrix('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\2003\\')
-    # hc.hydrodc_csv2matrix('D:\\Hydrodatacube\\',
-    #                       'D:\\Hydrodatacube\\hydro_dc_X_16357_Y_4827_posttgd.csv')
-    # hc.hydrodc_csv2matrix('D:\\Hydrodatacube\\',
-    #                       'D:\\Hydrodatacube\\hydro_dc_X_16357_Y_4827_pretgd.csv')
+    hc = HydroDC()
+    hc.merge_hydro_inform(wl1)
+    hc.from_hydromatrix('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\2003\\')
+    hc.hydrodc_csv2matrix('D:\\Hydrodatacube\\', 'D:\\Hydrodatacube\\hydro_dc_X_16357_Y_4827_posttgd.csv')
+    hc.hydrodc_csv2matrix('D:\\Hydrodatacube\\', 'D:\\Hydrodatacube\\hydro_dc_X_16357_Y_4827_pretgd.csv')
 
     # for _ in range(1986, 2023):
     #     pheme_dc = Phemetric_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\{str(_)}')
@@ -113,19 +110,19 @@ if __name__ == '__main__':
 
     for year in range(1995, 2024):
         year = int(year)
-        hc = HydroDatacube()
+        hc = HydroDC()
         hc.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
         hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_mid.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\predamwl_middamdem\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=True)
 
     # for year in range(1988, 2004):
     #     year = int(year)
-    #     hc = HydroDatacube()
+    #     hc = HydroDC()
     #     hc.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
     #     hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_pretgd.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=False)
     #
     # for year in range(2004, 2024):
     #     year = int(year)
-    #     hc = HydroDatacube()
+    #     hc = HydroDC()
     #     hc.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
     #     hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_posttgd.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=False)
 
@@ -135,7 +132,7 @@ if __name__ == '__main__':
     #
     # #
     # # # Cross section construction POST-TGD
-    # cs1 = CrossSection('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\')
+    # cs1 = CSprofile('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\')
     # cs1.from_stdCSfiles(
     #     'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_DEM_2019_all.csv')
     # cs1.import_CS_coords(
@@ -154,7 +151,7 @@ if __name__ == '__main__':
     # thal1.to_geojson()
     # thal1 = Thalweg()
     # thal1 = thal1.load_geojson('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_geojson\\thelwag.json')
-    # thal1.load_smooth_Thalweg_shp('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth.shp')
+    # thal1.from_smooth_Thalweg_shp('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth.shp')
     # # # #
     # thal1.merged_hydro_inform(wl1)
     # thal1.perform_in_epoch(
@@ -165,7 +162,7 @@ if __name__ == '__main__':
     #     year_range=[1987, 2004])
     #
     # # Cross section construction pre-TGD
-    # cs2 = CrossSection('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Pre_TGD\\')
+    # cs2 = CSprofile('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Pre_TGD\\')
     # cs2.from_standard_cross_profiles('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_DEM_2003.xlsx')
     # cs2.import_section_coordinates(
     #     'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_coordinates_wgs84.csv',
@@ -205,7 +202,7 @@ if __name__ == '__main__':
     # thal1.to_geojson()
     # thal1 = Thalweg()
     # thal1 = thal1.load_geojson('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_geojson\\thelwag.json')
-    # thal1.load_smooth_Thalweg_shp('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth.shp')
+    # thal1.from_smooth_Thalweg_shp('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth.shp')
     # # #
     # thal1.merged_hydro_inform(wl1)
     # thal1.perform_in_epoch(
