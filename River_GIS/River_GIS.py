@@ -470,6 +470,7 @@ class HydroStationDS (object):
         for year_ in year_list:
             annual_df = res_df[["y", "x", f'{str(year_)})_wl']].copy()
 
+        hydrodc_csv2matrix()
 
 
     def print_annual_runoff_sediment(self, station_name, output_folder):

@@ -1033,59 +1033,59 @@ def retrieve_correct_filename(file_name: str):
 
                 return None
 
-    def hydrodc_csv2matrix(hydroinform_df, hydroinform_dic, Xsize, Ysize, year):
+def hydrodc_csv2matrix(hydroinform_df, hydroinform_dic, Xsize, Ysize, year):
 
-        # Check if hydro station data is import
-        if hydroinform_dic is None:
-            raise Exception('Please input the hydro inform first')
+    # Check if hydro station data is import
+    if hydroinform_dic is None:
+        raise Exception('Please input the hydro inform first')
 
-        # Get the year list and array size
-        hydro_inform = list(hydroinform_df['yearly_wl'])
-        hydro_inform_list = []
-        hydro_list = []
-        hydro_temp = {}
-        for _ in hydroinform_dic.keys():
-            hydro_temp[_] = list(hydroinform_dic[_][hydroinform_dic[_]['year'] == year]['water_level/m'])
-        hydro_list.append(hydro_temp)
+    # Get the year list and array size
+    hydro_inform = list(hydroinform_df['yearly_wl'])
+    hydro_inform_list = []
+    hydro_list = []
+    hydro_temp = {}
+    for _ in hydroinform_dic.keys():
+        hydro_temp[_] = list(hydroinform_dic[_][hydroinform_dic[_]['year'] == year]['water_level/m'])
+    hydro_list.append(hydro_temp)
 
-        # Define the matrix
-        mem = psutil.virtual_memory().available
-        if hydroinform_df.shape[0] / (Xsize * Ysize) < 0.2 or Xsize * Ysize * 4 * 365 > psutil.virtual_memory().available:
-            if not os.path.exists(f'{outputfolder}{str(year)}\\SMsequence.npz.npy'):
-                # Define the sparse matrix
-                doy_list = [year * 1000 + _ for _ in range(1, datetime(year=year + 1, month=1, day=1).toordinal() - datetime(year=year, month=1, day=1).toordinal() + 1)]
-                sm_list = [sm.lil_matrix((Ysize, Xsize)) for _ in range(len(doy_list))]
-
-                with tqdm(total=len(hydro_inform), desc=f'Generate hydro datacube',
-                          bar_format='{l_bar}{bar:24}{r_bar}{bar:-24b}') as pbar:
-                    for _ in range(len(hydro_inform)):
-                        y, x = int(y_l[_]), int(x_l[_])
-                        # print(str(y) + str(x))
-                        wl_start_series = np.array(hydro_dic[hydro_inform[_][1]])
-                        wl_end_series = np.array(hydro_dic[hydro_inform[_][2]])
-                        # print(str(wl_start_series))
-                        wl_start_dis = hydro_inform[_][3]
-                        wl_end_dis = hydro_inform[_][4]
-                        wl_inter = wl_start_series + (wl_end_series - wl_start_series) * wl_start_dis / (
-                                    wl_start_dis + wl_end_dis)
-                        # print(str(wl_inter))
-                        # print(str(wl_end_dis))
-                        for __ in range(len(wl_inter)):
-                            sm_list[__][y, x] = wl_inter[__]
-                        pbar.update()
-
-                print(f'Start saving the hydro datacube of year {str(year)}!')
-                st = time.time()
-                # for _ in range(len(sm_list)):
-                #     sm_list[_] = sm_list[_].tocsr()
-                ND_temp = NDSparseMatrix(*sm_list, SM_namelist=doy_list)
-                ND_temp.save(f'{outputfolder}{str(year)}\\')
-                print(f'Finish saving the hydro datacube of year {str(year)} in {str(time.time() - st)}!')
-
-        else:
+    # Define the matrix
+    mem = psutil.virtual_memory().available
+    if hydroinform_df.shape[0] / (Xsize * Ysize) < 0.2 or Xsize * Ysize * 4 * 365 > psutil.virtual_memory().available:
+        if not os.path.exists(f'{outputfolder}{str(year)}\\SMsequence.npz.npy'):
+            # Define the sparse matrix
             doy_list = [year * 1000 + _ for _ in range(1, datetime(year=year + 1, month=1, day=1).toordinal() - datetime(year=year, month=1, day=1).toordinal() + 1)]
-            dc = np.zeros((Ysize, Xsize, len(doy_list))) * np.nan
-            np.save(f'{outputfolder}{str(year)}\\', dc)
+            sm_list = [sm.lil_matrix((Ysize, Xsize)) for _ in range(len(doy_list))]
+
+            with tqdm(total=len(hydro_inform), desc=f'Generate hydro datacube',
+                      bar_format='{l_bar}{bar:24}{r_bar}{bar:-24b}') as pbar:
+                for _ in range(len(hydro_inform)):
+                    y, x = int(y_l[_]), int(x_l[_])
+                    # print(str(y) + str(x))
+                    wl_start_series = np.array(hydro_dic[hydro_inform[_][1]])
+                    wl_end_series = np.array(hydro_dic[hydro_inform[_][2]])
+                    # print(str(wl_start_series))
+                    wl_start_dis = hydro_inform[_][3]
+                    wl_end_dis = hydro_inform[_][4]
+                    wl_inter = wl_start_series + (wl_end_series - wl_start_series) * wl_start_dis / (
+                                wl_start_dis + wl_end_dis)
+                    # print(str(wl_inter))
+                    # print(str(wl_end_dis))
+                    for __ in range(len(wl_inter)):
+                        sm_list[__][y, x] = wl_inter[__]
+                    pbar.update()
+
+            print(f'Start saving the hydro datacube of year {str(year)}!')
+            st = time.time()
+            # for _ in range(len(sm_list)):
+            #     sm_list[_] = sm_list[_].tocsr()
+            ND_temp = NDSparseMatrix(*sm_list, SM_namelist=doy_list)
+            ND_temp.save(f'{outputfolder}{str(year)}\\')
+            print(f'Finish saving the hydro datacube of year {str(year)} in {str(time.time() - st)}!')
+
+    else:
+        doy_list = [year * 1000 + _ for _ in range(1, datetime(year=year + 1, month=1, day=1).toordinal() - datetime(year=year, month=1, day=1).toordinal() + 1)]
+        dc = np.zeros((Ysize, Xsize, len(doy_list))) * np.nan
+        np.save(f'{outputfolder}{str(year)}\\', dc)
 
 
 def get_value_through_river_crosssection(num, coord, slope, nodata, itr, tiffile, length, outputfolder, limit=10000):
