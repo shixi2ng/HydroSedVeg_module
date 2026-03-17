@@ -13,5 +13,5 @@ if __name__ == '__main__':
     thal1.from_geojson('G:\A_Floodplain_topography\\Water_level_python\\Post_TGD\\output_geojson\\thelwag.json')
     thal1.from_smooth_Thalweg_shp('G:\A_Floodplain_topography\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth2.shp')
 
-    wl1.to_HydroDC(thal1, 'G:\A_Floodplain_topography\ROI_map\\floodplain_2020_map.TIF', [1988, 2020], 'G:\A_Floodplain_topography\HydroDC\\')
+    wl1.to_HydroDC(thal1, 'G:\A_Floodplain_topography\ROI_map\\floodplain_2020_map.TIF', [_ for _ in range(1988, 2021)], 'G:\A_Floodplain_topography\HydroDC\\')
     pass

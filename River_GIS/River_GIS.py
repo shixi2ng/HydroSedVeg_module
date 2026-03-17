@@ -397,7 +397,7 @@ class HydroStationDS (object):
             raise TypeError('Please input the year list with right type!')
 
         if output_path is None:
-            output_path = thalweg_temp.work_env + 'hydro_dc\\'
+            output_path = thalweg_temp.work_env + 'HydroDC\\'
         else:
             output_path = bf.Path(output_path).path_name
         bf.create_folder(output_path)
@@ -466,11 +466,11 @@ class HydroStationDS (object):
         res_df = pd.concat(res, axis=0, ignore_index=True)
         res_df.reset_index(drop=True, inplace=True)
 
-        # Generate annual water level
+        # Generate HydroDC
         for year_ in year_list:
-            annual_df = res_df[["y", "x", f'{str(year_)})_wl']].copy()
-
-        hydrodc_csv2matrix()
+            annual_df = res_df[["y", "x", f'{str(year_)}_wl']].copy()
+            annual_df.rename(columns={f'{str(year_)}_wl': 'yearly_wl'}, inplace=True)
+            df2hydroDC(annual_df, thalweg_temp.hydro_inform_dic, arr.shape[1], arr.shape[0], year_, output_path)
 
 
     def print_annual_runoff_sediment(self, station_name, output_folder):

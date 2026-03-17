@@ -5,12 +5,27 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from osgeo import gdal
 import basic_function as bf
+import ruptures as rpt
 import math
 from matplotlib.colors import to_rgba
 from brokenaxes import brokenaxes
 import plotly.graph_objects as go
 from matplotlib.patches import Patch
 from scipy import stats
+from scipy.ndimage import gaussian_filter1d
+import statsmodels.api as sm
+
+
+def linear_fit_with_ci(x, y, x_pred, alpha=0.25):
+    x_ = sm.add_constant(x)
+    model = sm.OLS(y, x_).fit()
+    print(f'a: {str(model.params[0])}')
+    print(f'b: {str(model.params[1])}')
+    print(f'')
+    x_pred_ = sm.add_constant(x_pred)
+    pred = model.get_prediction(x_pred_)
+    pred_summary = pred.summary_frame(alpha=alpha)
+    return pred_summary["mean"], pred_summary["mean_ci_lower"], pred_summary["mean_ci_upper"]
 
 
 def run_pettitt_and_mark(ax, years, y):
@@ -83,8 +98,8 @@ def _plot_stacked(pivot_df, reach_name, style_map, class_order, output_folder):
         2: '挺水植物群落',
         3: '木本植物群落',
         4: '农业用地',
-        5: '裸露滩地',
-        6: '城市建设用地',
+        5: '裸露洲滩',
+        6: '建设用地',
     }
 
     for cls in class_order:
@@ -102,6 +117,9 @@ def _plot_stacked(pivot_df, reach_name, style_map, class_order, output_folder):
                edgecolor=st['edge'], linewidth=1.2, facecolor=st['face'],
                hatch=(st['hatch'] or ''), width=0.9)
         bottom += vals
+
+    ax.plot([14.5, 14.5], [0, 100], lw=2.4, c=(0,0,0))
+    ax.plot([24.5, 24.5], [0, 100], lw=2.4, c=(0,0,0))
 
     ax.set_xticks(x)
     ax.set_xticklabels(years, rotation=45, ha='right')
@@ -348,6 +366,96 @@ def fig3_1_segments(input_folder, output_folder,
 
     return results
 
+def fig32_sup(output_folder):
+
+
+    plt.rcParams['font.family'] = ['Times New Roman', 'SimSun']
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rc('font', size=10)
+    plt.rc('axes', linewidth=1)
+
+    def naninterp(arr):
+        nans = np.isnan(arr)
+        if np.any(nans):
+            arr[nans] = np.interp(np.flatnonzero(nans), np.flatnonzero(~nans), arr[~nans])
+        return arr
+
+    if not os.path.exists(os.path.join(output_folder, 'id.csv')):
+
+        for yr in range(1988, 2021):
+            ds_ = gdal.Open(f'G:\A_Floodplain_topography\Water_level_python\Inundation_indicator\inundation_factor\\{str(yr)}\\inun_duration.tif')
+            if yr == 1988:
+                mask = ~np.isnan(ds_.GetRasterBand(1).ReadAsArray())
+            else:
+                mask = np.logical_or(mask, ~np.isnan(ds_.GetRasterBand(1).ReadAsArray()))
+
+        id_list = {'yr': [], 'id': [], 'std': [], 'series':[]}
+        for yr in range(1988, 2021):
+            ds_ = gdal.Open(f'G:\A_Floodplain_topography\Water_level_python\Inundation_indicator\inundation_factor\\{str(yr)}\\inun_duration.tif')
+            arr_ = ds_.GetRasterBand(1).ReadAsArray()
+            arr_[np.isnan(arr_)] = 365
+            arr_[~mask] = np.nan
+            id_list['yr'].append(yr)
+            id_list['id'].append(np.nanmean(arr_))
+            id_list['std'].append(np.nanstd(arr_))
+            id_list['series'].append(arr_)
+
+        id_df = pd.DataFrame(id_list)
+        id_df.to_csv(os.path.join(output_folder, 'id.csv'))
+
+    id_df=pd.read_csv(os.path.join(output_folder, 'id.csv'))
+
+    fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+    ax.scatter(id_df['yr'], id_df['id'], s=8 ** 2, marker='s', facecolor=to_rgba('#EE0000', 0.5), edgecolor='#EE0000')
+
+    mean1, lower, upper = linear_fit_with_ci(id_df['yr'][0:15], id_df['id'][0:15], [1988, 2002.4])
+    ax.plot([1988, 2002.4], mean1, c='#EE0000', ls='--', label='拟合曲线')
+    mean2, lower, upper = linear_fit_with_ci(id_df['yr'][13:25], id_df['id'][13:25], [2002.6, 2012.4])
+    ax.plot([2002.6, 2012.4], mean2, c='#EE0000', ls='--')
+    mean3, lower, upper = linear_fit_with_ci(id_df['yr'][23:], id_df['id'][23:], [2012.6, 2020])
+    ax.plot([2012.6, 2020], mean3, c='#EE0000', ls='--')
+
+    lower_smooth = gaussian_filter1d(naninterp(id_df['id'] + id_df['std']), sigma=1)
+    upper_smooth = gaussian_filter1d(naninterp(id_df['id'] -  id_df['std']), sigma=1)
+
+    ax.fill_between(id_df['yr'], lower_smooth, upper_smooth, color='#aaaaaa', alpha=0.2, zorder=1, label='75%置信区间')
+
+    ax.plot([2002.45, 2002.45], [-100, 250], linewidth=1.3, color='black')
+    ax.plot([2002.55, 2002.55], [-100, 250], linewidth=1.3, color='black')
+    ax.plot([2012.45, 2012.45], [-100, 250], linewidth=1.3, color='black')
+    ax.plot([2012.55, 2012.55], [-100, 250], linewidth=1.3, color='black')
+
+    xt = sorted([_ for _ in range(1988, 2021)])
+    ax.set_xticks(xt)
+    ax.set_xticklabels(xt, rotation=45, ha='right', fontsize=9)
+
+    ax.grid(axis="y", linestyle="--", alpha=0.4, zorder=0)
+    for s in ax.spines.values():
+        s.set_linewidth(2.0)
+
+    ax.set_xlabel('年份')
+    ax.set_ylabel('淹没历时/d')
+    ax.legend(
+        loc="lower right",
+        frameon=True,
+        bbox_to_anchor=(0.98, 0.70),
+        facecolor="white",
+        framealpha=1.0,
+        edgecolor="gray",
+        borderaxespad=0.1,
+        ncol=2,
+        columnspacing=1.2,
+        handlelength=1.8,
+        handletextpad=0.6,
+        fontsize=12,
+        title_fontsize=10,
+    )
+    ax.set_xlim(1987.5, 2020.5)
+    ax.set_ylim(0, 200)
+    out_png = os.path.join(output_folder, f"id.png")
+    plt.savefig(out_png, bbox_inches="tight", dpi=300)
+    print(f"[OK] 已保存图像：{out_png}")
+
 
 def fig32(output_folder,
           reaches=None,
@@ -425,14 +533,14 @@ def fig32(output_folder,
         cfg = y_break_cfg.get(key)
 
         if cfg is None:
-            fig, ax = plt.subplots(figsize=(12, 3.5), dpi=300)
+            fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
             axes_to_draw = [ax]
             legend_ax = ax
         else:
             (y_low_min, y_low_max), (y_high_min, y_high_max) = cfg["ranges"]
             low_len  = max(1e-9, float(y_low_max - y_low_min))
             high_len = max(1e-9, float(y_high_max - y_high_min))
-            fig = plt.figure(figsize=(12, 3.5), dpi=300)
+            fig = plt.figure(figsize=(12, 3), dpi=300)
             gs = fig.add_gridspec(2, 1, height_ratios=[high_len, low_len])
             ax_high = fig.add_subplot(gs[0])
             ax_low  = fig.add_subplot(gs[1], sharex=ax_high)
@@ -494,16 +602,38 @@ def fig32(output_folder,
                 )
                 ax.plot([2002.45, 2002.45], [-100, 100], linewidth=1.3, color='black')
                 ax.plot([2002.55, 2002.55], [-100, 100], linewidth=1.3, color='black')
+                ax.plot([2012.45, 2012.45], [-100, 100], linewidth=1.3, color='black')
+                ax.plot([2012.55, 2012.55], [-100, 100], linewidth=1.3, color='black')
 
             try:
-                res = pettitt_test(ratio)
-                idx = int(res['year']) - year_min
-                if 0 <= idx < len(ratio):
-                    x0 = int(res['year']); y0v = ratio[idx]
+                if reach_name == '长江中游':
+                    # 不用 Pelt，改用 Dynp (动态规划)
+                    algo = rpt.Dynp(model="l2").fit(np.diff(ratio))
+
+                    # 直接告诉它：我要找 2 个断点 (n_bkps = breakpoints number)
+                    result = algo.predict(n_bkps=2)
+                    print("直接指定找2个点的结果:", result)
+
+                    x0 = int(result[0] + year_min); y0v = ratio[result[0]]
                     for ax in axes_to_draw:
                         ax.scatter(x0, y0v, s=70, marker=st['marker'],
                                    facecolor='red', edgecolor='black', linewidth=0.9,
                                    zorder=6, label=None)
+
+                    x0 = int(result[1] + year_min + 5); y0v = ratio[result[1]]
+                    for ax in axes_to_draw:
+                        ax.scatter(x0, y0v, s=70, marker=st['marker'],
+                                   facecolor='red', edgecolor='black', linewidth=0.9,
+                                   zorder=6, label=None)
+
+                # res = pettitt_test(ratio)
+                # idx = int(res['year']) - year_min
+                # if 0 <= idx < len(ratio):
+                #     x0 = int(res['year']); y0v = ratio[idx]
+                #     for ax in axes_to_draw:
+                #         ax.scatter(x0, y0v, s=70, marker=st['marker'],
+                #                    facecolor='red', edgecolor='black', linewidth=0.9,
+                #                    zorder=6, label=None)
             except Exception as e:
                 print(f"[WARN] Pettitt 检验失败 {reach_name}, {label}: {e}")
 
@@ -552,14 +682,14 @@ def fig32(output_folder,
             ax_low.plot((1 - d, 1 + d), (1 - d, 1 + d), transform=ax_low.transAxes, **kw)
 
             fig.subplots_adjust(hspace=0.02)
-            ax_high.set_ylabel("NDVEI")
+            ax_high.set_ylabel("NDVCI")
             axes_to_draw[-1].set_xlabel("年份")
         else:
             if np.isfinite(y_global_min) and np.isfinite(y_global_max):
                 span = y_global_max - y_global_min
                 pad = 0.1 * (span if span > 0 else 1.0)
                 axes_to_draw[0].set_ylim(y_global_min - pad, y_global_max + pad)
-            axes_to_draw[0].set_ylabel("NDVEI")
+            axes_to_draw[0].set_ylabel("NDVCI")
             axes_to_draw[0].set_xlabel("年份")
 
         for ax in axes_to_draw:
@@ -677,7 +807,7 @@ def fig33(output_folder,
     # 样式
     plt.rcParams['font.family'] = ['Times New Roman', 'SimSun']
     plt.rcParams['axes.unicode_minus'] = False
-    plt.rc('font', size=14)
+    plt.rc('font', size=10)
     plt.rc('axes', linewidth=1)
 
     def pick_col(df, c):
@@ -729,14 +859,14 @@ def fig33(output_folder,
 
         # ========= 建图：单轴 or 双轴（broken） =========
         if cfg is None:
-            fig, ax = plt.subplots(figsize=(12, 4), dpi=300)
+            fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
             axes_to_draw = [ax]
             legend_ax = ax
         else:
             (y_low_min, y_low_max), (y_high_min, y_high_max) = cfg["ranges"]
             low_len = max(1e-9, float(y_low_max - y_low_min))
             high_len = max(1e-9, float(y_high_max - y_high_min))
-            fig = plt.figure(figsize=(12, 4), dpi=300)
+            fig = plt.figure(figsize=(12, 3), dpi=300)
             gs = fig.add_gridspec(2, 1, height_ratios=[high_len, low_len])  # [上,下]
             ax_high = fig.add_subplot(gs[0])
             ax_low = fig.add_subplot(gs[1], sharex=ax_high)
@@ -816,6 +946,8 @@ def fig33(output_folder,
                 # 2002 年双竖线
                 ax.plot([2002.45, 2002.45], [-100, 100], linewidth=1.3, color='black')
                 ax.plot([2002.55, 2002.55], [-100, 100], linewidth=1.3, color='black')
+                ax.plot([2012.45, 2012.45], [-100, 100], linewidth=1.3, color='black')
+                ax.plot([2012.55, 2012.55], [-100, 100], linewidth=1.3, color='black')
 
             # Pettitt 突变点
             try:
@@ -824,17 +956,17 @@ def fig33(output_folder,
                 if 0 <= idx < len(ratio):
                     x0 = int(res['year'])
                     y0v = ratio[idx]
-                    for ax in axes_to_draw:
-                        ax.scatter(
-                            x0, y0v,
-                            s=70,
-                            marker=st['marker'],
-                            facecolor='red',
-                            edgecolor='black',
-                            linewidth=0.9,
-                            zorder=6,
-                            label=None
-                        )
+                    # for ax in axes_to_draw:
+                    #     ax.scatter(
+                    #         x0, y0v,
+                    #         s=70,
+                    #         marker=st['marker'],
+                    #         facecolor='red',
+                    #         edgecolor='black',
+                    #         linewidth=0.9,
+                    #         zorder=6,
+                    #         label=None
+                    #     )
                 print(f"{reach_name}: {label}, Pettitt year = {res['year']}")
             except Exception as e:
                 print(f"[WARN] Pettitt 检验失败 {reach_name}, {label}: {e}")
@@ -2869,12 +3001,16 @@ def fig300():  # 1. CSV 列表
         a = pd.read_csv(_)
         print(__)
         print(str(a.shape[0]))
+
+
+
 if __name__ == '__main__':
     # fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.1')
     # fig399()
-    fig38()
-    # fig39()
-    # premap()
-    # fig32('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.2')
-    # fig33('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.3')
+    # fig32_sup('D:\\A_PhD_Main_paper\\Chap.3\\Figure\\Fig.3.2\\')
+    # fig32('D:\\A_PhD_Main_paper\\Chap.3\\Figure\\Fig.3.2\\')
+    # # fig39()
+    # # premap()
+    # # fig32('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.2')
+    fig33('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.3')
     # fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.1')
