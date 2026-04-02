@@ -2306,6 +2306,85 @@ class RS_dcs(object):
                 raise Exception('The df output procedure was interrupted by error!')
             GEDI_df_.GEDI_inform_DF = GEDI_df_.GEDI_inform_DF.merge(gedi_list_output)
 
+    def link_GEDI_tif(self, tif_file, GEDI_df_, **kwargs):
+
+        # Process para
+        self._process_link_GEDI_VegType_para(**kwargs)
+
+        if not os.path.exists(tif_file):
+            raise FileNotFoundError(f'The {str(tif_file)} is not found!')
+        elif not tif_file.endswith('.tif') and not tif_file.endswith('.TIF'):
+            raise TypeError('The input should be a tif file!')
+        else:
+            tif_ds = gdal.Open(tif_file)
+            tif_arr = tif_ds.GetRasterBand(1).ReadAsArray()
+            tif_proj = retrieve_srs(tif_ds)
+            tif_gt = tif_ds.GetGeoTransform()
+            tif_name = os.path.basename(tif_file)
+            tif_nodata = tif_ds.GetRasterBand(1).GetNoDataValue()
+
+        # Retrieve GEDI inform
+        if isinstance(GEDI_df_, gedi.GEDI_df):
+            GEDI_df_.reprojection(tif_proj, xycolumn_start='EPSG')
+        else:
+            raise TypeError('The gedi_df_ is not under the right type')
+        GEDI_df_reset = GEDI_df_.GEDI_inform_DF.reset_index().rename(columns={'index': 'Original'})
+        gedi_list_folder = os.path.join(GEDI_df_.work_env, f'GEDI_link_RS\\{GEDI_df_.file_name}\\')
+        create_folder(gedi_list_folder)
+
+        output_csv = gedi_list_folder + f'{GEDI_df_.file_name}_{tif_name}.csv'
+        if os.path.exists(output_csv):
+            gedi_list_output = pd.read_csv(output_csv)
+        else:
+            block_amount = os.cpu_count()
+            indi_block_size = int(np.ceil(GEDI_df_.df_size / block_amount))
+
+            GEDI_df_blocked, arr_blocked, raster_gt_list = [], [], []
+            buffer_diameter = max(25, tif_gt[1])
+            for i in range(block_amount):
+                if i != block_amount - 1:
+                    GEDI_df_blocked.append(GEDI_df_reset[i * indi_block_size: (i + 1) * indi_block_size])
+                else:
+                    GEDI_df_blocked.append(GEDI_df_reset[i * indi_block_size: -1])
+
+                ymin_temp, ymax_temp, xmin_temp, xmax_temp = GEDI_df_blocked[-1].EPSG_lat.max() + buffer_diameter, \
+                                                             GEDI_df_blocked[-1].EPSG_lat.min() - buffer_diameter, \
+                                                             GEDI_df_blocked[-1].EPSG_lon.min() - buffer_diameter, \
+                                                             GEDI_df_blocked[-1].EPSG_lon.max() + buffer_diameter
+                cube_ymin, cube_ymax, cube_xmin, cube_xmax = (int(max(0, np.floor((ymin_temp - tif_gt[3]) / tif_gt[5]))),
+                                                              int(min(tif_arr.shape[0], np.ceil((ymax_temp - tif_gt[3]) / tif_gt[5]))),
+                                                              int(max(0, np.floor((xmin_temp - tif_gt[0]) / tif_gt[1]))),
+                                                              int(min(tif_arr.shape[1], np.ceil((xmax_temp - tif_gt[0]) / tif_gt[1]))))
+
+                arr_blocked.append(tif_arr[cube_ymin:cube_ymax + 1, cube_xmin: cube_xmax + 1])
+                raster_gt_list.append([tif_gt[0] + cube_xmin * tif_gt[1], tif_gt[1], tif_gt[2], tif_gt[3] + cube_ymin * tif_gt[5], tif_gt[4], tif_gt[5]])
+
+            try:
+                result = []
+                for i in range(block_amount):
+                    result.append(link_GEDI_tif_inform(arr_blocked[i], raster_gt_list[i], GEDI_df_blocked[i], 'EPSG',
+                                                       tif_name, self._GEDI_link_RS_spatial_interpolate_method, tif_nodata=tif_nodata))
+            except:
+                raise Exception('The link procedure was interrupted by error!')
+
+            try:
+                result = list(result)
+                gedi_list_output = None
+                for result_temp in result:
+                    if result_temp.shape[0] != 0:
+                        if gedi_list_output is None:
+                            gedi_list_output = copy.copy(result_temp)
+                        else:
+                            gedi_list_output = pd.concat([gedi_list_output, result_temp])
+                gedi_list_output.set_index('Original')
+                gedi_list_output.to_csv(output_csv)
+            except:
+                print(traceback.print_exc())
+                raise Exception('The df output procedure was interrupted by error!')
+
+        GEDI_df_.GEDI_inform_DF = GEDI_df_.GEDI_inform_DF.merge(gedi_list_output)
+
+
     def calculate_denv8pheme(self, denvname: str, year_list: list, pheme_list: list, cal_method: str, base_status=False, bulk = True, period_average=True):
 
         # Construct the output folder

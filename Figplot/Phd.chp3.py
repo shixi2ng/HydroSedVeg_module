@@ -82,16 +82,15 @@ def pettitt_test(series, years=[_ for _ in range(1988, 2024)]):
 def _plot_stacked(pivot_df, reach_name, style_map, class_order, output_folder):
     # 画幅：除“长江中游”外其它河段尺寸减半
     if reach_name == "长江中游":
-        figsize = (18, 6)
+        figsize = (12, 5)
     else:
-        figsize = (12, 6)   # 半尺寸
+        figsize = (8, 4)   # 半尺寸
 
     fig, ax = plt.subplots(figsize=figsize, dpi=300)
 
     years = pivot_df['year'].tolist()
     x = np.arange(len(years))
     bottom = np.zeros(len(pivot_df), dtype=float)
-
 
     class_names = {
         1: '草本植物群落',
@@ -380,7 +379,10 @@ def fig32_sup(output_folder):
             arr[nans] = np.interp(np.flatnonzero(nans), np.flatnonzero(~nans), arr[~nans])
         return arr
 
-    if not os.path.exists(os.path.join(output_folder, 'id.csv')):
+    id_csv = os.path.join(output_folder, 'id.csv')
+    id_npz = os.path.join(output_folder, 'id_series.npz')
+
+    if (not os.path.exists(id_csv)) or (not os.path.exists(id_npz)):
 
         for yr in range(1988, 2021):
             ds_ = gdal.Open(f'G:\A_Floodplain_topography\Water_level_python\Inundation_indicator\inundation_factor\\{str(yr)}\\inun_duration.tif')
@@ -389,23 +391,41 @@ def fig32_sup(output_folder):
             else:
                 mask = np.logical_or(mask, ~np.isnan(ds_.GetRasterBand(1).ReadAsArray()))
 
-        id_list = {'yr': [], 'id': [], 'std': [], 'series':[]}
+        id_list = {'yr': [], 'id': [], 'std': []}
+        id_series = []
         for yr in range(1988, 2021):
             ds_ = gdal.Open(f'G:\A_Floodplain_topography\Water_level_python\Inundation_indicator\inundation_factor\\{str(yr)}\\inun_duration.tif')
             arr_ = ds_.GetRasterBand(1).ReadAsArray()
             arr_[np.isnan(arr_)] = 365
             arr_[~mask] = np.nan
+            arr_valid = arr_[~np.isnan(arr_)]
             id_list['yr'].append(yr)
             id_list['id'].append(np.nanmean(arr_))
             id_list['std'].append(np.nanstd(arr_))
-            id_list['series'].append(arr_)
+            id_series.append(arr_valid.astype(np.float32))
 
         id_df = pd.DataFrame(id_list)
-        id_df.to_csv(os.path.join(output_folder, 'id.csv'))
+        id_df.to_csv(id_csv, index=False)
+        np.savez_compressed(id_npz, years=np.asarray(id_list['yr'], dtype=np.int32), series=np.asarray(id_series, dtype=object))
 
-    id_df=pd.read_csv(os.path.join(output_folder, 'id.csv'))
+    id_df = pd.read_csv(id_csv)
+    series_npz = np.load(id_npz, allow_pickle=True)
+    id_series = [np.asarray(arr, dtype=float) for arr in series_npz['series']]
+    years = series_npz['years'].astype(int)
 
     fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+    # ax.boxplot(
+    #     id_series,
+    #     positions=years,
+    #     widths=0.6,
+    #     showfliers=False,
+    #     patch_artist=True,
+    #     boxprops=dict(facecolor=to_rgba('#87CEFA', 0.3), edgecolor='#2F4F4F', linewidth=0.8),
+    #     whiskerprops=dict(color='#2F4F4F', linewidth=0.8),
+    #     capprops=dict(color='#2F4F4F', linewidth=0.8),
+    #     medianprops=dict(color='#1C1C1C', linewidth=1.0),
+    # )
+
     ax.scatter(id_df['yr'], id_df['id'], s=8 ** 2, marker='s', facecolor=to_rgba('#EE0000', 0.5), edgecolor='#EE0000')
 
     mean1, lower, upper = linear_fit_with_ci(id_df['yr'][0:15], id_df['id'][0:15], [1988, 2002.4])
@@ -415,10 +435,15 @@ def fig32_sup(output_folder):
     mean3, lower, upper = linear_fit_with_ci(id_df['yr'][23:], id_df['id'][23:], [2012.6, 2020])
     ax.plot([2012.6, 2020], mean3, c='#EE0000', ls='--')
 
-    lower_smooth = gaussian_filter1d(naninterp(id_df['id'] + id_df['std']), sigma=1)
-    upper_smooth = gaussian_filter1d(naninterp(id_df['id'] -  id_df['std']), sigma=1)
+    q75 = np.array([np.nanpercentile(arr, 80) if arr.size else np.nan for arr in id_series], dtype=float)
+    q25 = np.array([np.nanpercentile(arr, 20) if arr.size else np.nan for arr in id_series], dtype=float)
+    upper_quartile_smooth = gaussian_filter1d(naninterp(q75.copy()), sigma=1)
+    lower_quartile_smooth = gaussian_filter1d(naninterp(q25.copy()), sigma=1)
 
-    ax.fill_between(id_df['yr'], lower_smooth, upper_smooth, color='#aaaaaa', alpha=0.2, zorder=1, label='75%置信区间')
+    # lower_smooth = gaussian_filter1d(naninterp(id_df['id'] + id_df['std']), sigma=1)
+    # upper_smooth = gaussian_filter1d(naninterp(id_df['id'] -  id_df['std']), sigma=1)
+
+    ax.fill_between(id_df['yr'], lower_quartile_smooth, upper_quartile_smooth, color='#aaaaaa', alpha=0.2, zorder=1, label='60%置信区间')
 
     ax.plot([2002.45, 2002.45], [-100, 250], linewidth=1.3, color='black')
     ax.plot([2002.55, 2002.55], [-100, 250], linewidth=1.3, color='black')
@@ -438,7 +463,7 @@ def fig32_sup(output_folder):
     ax.legend(
         loc="lower right",
         frameon=True,
-        bbox_to_anchor=(0.98, 0.70),
+        bbox_to_anchor=(0.98, 0.80),
         facecolor="white",
         framealpha=1.0,
         edgecolor="gray",
@@ -600,10 +625,10 @@ def fig32(output_folder,
                     markerfacecolor=to_rgba(st['color'], 0.5),
                     markeredgecolor=st['color'],
                 )
-                ax.plot([2002.45, 2002.45], [-100, 100], linewidth=1.3, color='black')
-                ax.plot([2002.55, 2002.55], [-100, 100], linewidth=1.3, color='black')
-                ax.plot([2012.45, 2012.45], [-100, 100], linewidth=1.3, color='black')
-                ax.plot([2012.55, 2012.55], [-100, 100], linewidth=1.3, color='black')
+                ax.plot([2002.45, 2002.45], [-100, 100], linewidth=1.0, color='black')
+                ax.plot([2002.55, 2002.55], [-100, 100], linewidth=1.0, color='black')
+                ax.plot([2012.45, 2012.45], [-100, 100], linewidth=1.0, color='black')
+                ax.plot([2012.55, 2012.55], [-100, 100], linewidth=1.0, color='black')
 
             try:
                 if reach_name == '长江中游':
@@ -949,6 +974,19 @@ def fig33(output_folder,
                 ax.plot([2012.45, 2012.45], [-100, 100], linewidth=1.3, color='black')
                 ax.plot([2012.55, 2012.55], [-100, 100], linewidth=1.3, color='black')
 
+            algo = rpt.Dynp(model="l2").fit(np.diff(ratio))
+
+            # 直接告诉它：我要找 2 个断点 (n_bkps = breakpoints number)
+            result = algo.predict(n_bkps=1)
+            print("直接指定找2个点的结果:", result)
+
+            x0 = int(result[0] + year_min);
+            y0v = ratio[result[0]]
+            for ax in axes_to_draw:
+                ax.scatter(x0, y0v, s=70, marker=st['marker'],
+                           facecolor='red', edgecolor='black', linewidth=0.9,
+                           zorder=6, label=None)
+
             # Pettitt 突变点
             try:
                 res = pettitt_test(ratio)  # 假定外部已提供该函数
@@ -1066,6 +1104,7 @@ def fig33(output_folder,
                 handletextpad=0.6,
                 fontsize=14,
                 title_fontsize=10,
+                zorder=10
             )
             leg.get_frame().set_linewidth(1.2)
 
@@ -1143,12 +1182,12 @@ def fig38():
 
     # ------------ 3. 基本配置 ------------
     class_name_map = {
-        0: '裸露滩地',  # 合并后的 0
+        0: '裸露洲滩',  # 合并后的 0
         1: '草本植物群落',
         2: '挺水植物群落',
         3: '木本植物群落',
         4: '农业用地',
-        5: '城市建设用地',  # 由原 6 重编码而来
+        5: '建设用地',  # 由原 6 重编码而来
     }
 
     nodata_vals = [-32768]
@@ -1328,7 +1367,7 @@ def fig38():
         )
     )])
     fig.update_layout(font=dict(family="SimSun", size=20))
-    out_dir = r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.8'
+    out_dir = r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.4'
     os.makedirs(out_dir, exist_ok=True)
     png_path = os.path.join(out_dir, 'Fig3_8_sankey.png')
 
@@ -1525,12 +1564,12 @@ def fig39():
 
     # ------------ 3. 基本配置 ------------
     class_name_map = {
-        0: '裸露滩地',  # 合并后的 0
+        0: '裸露洲滩',  # 合并后的 0
         1: '草本植物群落',
         2: '挺水植物群落',
         3: '木本植物群落',
         4: '农业用地',
-        5: '城市建设用地',  # 由原 6 重编码而来
+        5: '建设用地',  # 由原 6 重编码而来
     }
 
     nodata_vals = [-32768]
@@ -1714,9 +1753,9 @@ def fig39():
         )])
 
         fig.update_layout(width=2200,height=2200,font=dict(family="SimSun", size=17))
-        out_dir = r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.9'
+        out_dir = r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.4'
         os.makedirs(out_dir, exist_ok=True)
-        png_path = os.path.join(out_dir, f'Fig3_8_sankey_{reach}.png')
+        png_path = os.path.join(out_dir, f'Fig3_4_sankey_{reach}.png')
 
         # 静态 PNG（需要：pip install -U kaleido）
         try:
@@ -1780,38 +1819,139 @@ def fig39():
         trans_csv_path = os.path.join(out_dir, f'Fig3_8_transitions_{reach}.csv')
         df_trans.to_csv(trans_csv_path, index=False, encoding='utf-8-sig')
 
-        # ------------ 11. 基于 link_counter 生成三个阶段的 confusion matrix ------------
-        # 不再用 idx_1988 这类索引，只用 link_counter + n_cls 来判断阶段
+        def _build_period_confusion_from_annual(
+                years,
+                tif_dir,
+                reclass_func,
+                classes,
+                class_to_idx,
+                nodata_vals,
+                col_slice=None,
+                correction_scale=1.0,
+        ):
+            """
+            将一个时段内“逐年连续”的转移矩阵累加为总转换矩阵。
+            例如 years=range(1988, 2001) 时，会累加 1988->1989, ..., 1999->2000。
+            """
+            n_cls = len(classes)
+            conf = np.zeros((n_cls, n_cls), dtype=np.int64)
 
-        # 初始化三个阶段的混淆矩阵
-        conf_1988_2003 = np.zeros((n_cls, n_cls), dtype=np.int64)
-        conf_2003_2013 = np.zeros((n_cls, n_cls), dtype=np.int64)
-        conf_2013_2023 = np.zeros((n_cls, n_cls), dtype=np.int64)
+            def _valid_mask(a):
+                mask = np.ones_like(a, dtype=bool)
+                for nv in nodata_vals:
+                    mask &= (a != nv)
+                return mask
 
-        # 遍历所有 link_counter 里的转移
-        for (s, t), v in link_counter.items():
-            if v <= 0:
-                continue
+            years = list(years)
+            if len(years) < 2:
+                return conf
 
-            # 第几列：0=1988, 1=2003, 2=2013, 3=2023
-            col_from = s // n_cls
-            col_to   = t // n_cls
+            arr_cache = {}
 
-            # 行列索引：在本年度列里的第几个类别（0..n_cls-1），对应 classes 的顺序
-            i = s % n_cls
-            j = t % n_cls
+            def _load_year_arr(year_):
+                if year_ in arr_cache:
+                    return arr_cache[year_]
+                tif_path = os.path.join(tif_dir, f'predict_{year_}.tif')
+                if not os.path.exists(tif_path):
+                    arr_cache[year_] = None
+                    print(f'[WARNING] 缺失年度分类图，已跳过: {tif_path}')
+                    return None
+                ds_ = gdal.Open(tif_path)
+                if ds_ is None:
+                    arr_cache[year_] = None
+                    print(f'[WARNING] 无法读取年度分类图，已跳过: {tif_path}')
+                    return None
+                arr_ = ds_.GetRasterBand(1).ReadAsArray().astype(np.int16)
+                arr_ = reclass_func(arr_)
+                if col_slice is not None:
+                    arr_ = arr_[:, col_slice[0]: col_slice[1]]
+                arr_cache[year_] = arr_
+                return arr_
 
-            # 判断属于哪个阶段
-            if col_from == 0 and col_to == 1:
-                # 1988 -> 2003
-                conf_1988_2003[i, j] += v
-            elif col_from == 1 and col_to == 2:
-                # 2003 -> 2013
-                conf_2003_2013[i, j] += v
-            elif col_from == 2 and col_to == 3:
-                # 2013 -> 2023
-                conf_2013_2023[i, j] += v
-            # 其他情况（非相邻年份的 link，一般不会有）忽略
+            def _apply_manual_adjustment_for_single_step(conf_step):
+                """
+                将 fig38/fig39 里对单阶段 link 的经验修正，映射到“单年转移矩阵”上。
+                这里不做跨阶段耦合项（如 7->13、13->19），只做单步内可定义的修正。
+                """
+                # 仅当关键类别存在时才修正
+                need_cls = [0, 1, 2, 3]
+                if any(cls_ not in class_to_idx for cls_ in need_cls):
+                    return conf_step
+
+                i0 = class_to_idx[0]
+                i1 = class_to_idx[1]
+                i2 = class_to_idx[2]
+                i3 = class_to_idx[3]
+
+                # 对应原逻辑：2->2 扣减，均分给 1->1 与 3->3
+                shift_22 = int(205700 * correction_scale)
+                if shift_22 > 0:
+                    real_shift_22 = min(int(conf_step[i2, i2]), shift_22)
+                    if real_shift_22 > 0:
+                        plus_11 = real_shift_22 // 2
+                        plus_33 = real_shift_22 - plus_11
+                        conf_step[i2, i2] -= real_shift_22
+                        conf_step[i1, i1] += plus_11
+                        conf_step[i3, i3] += plus_33
+
+                # 对应原逻辑中的 a 项：0->2 的 30% 挪到 0->1
+                shift_02 = int(np.floor(conf_step[i0, i2] * 0.3))
+                if shift_02 > 0:
+                    conf_step[i0, i2] -= shift_02
+                    conf_step[i0, i1] += shift_02
+
+                return conf_step
+
+            for y0, y1 in zip(years[:-1], years[1:]):
+                arr_from = _load_year_arr(y0)
+                arr_to = _load_year_arr(y1)
+                if arr_from is None or arr_to is None:
+                    continue
+                mask = _valid_mask(arr_from) & _valid_mask(arr_to)
+                a = arr_from[mask].ravel()
+                b = arr_to[mask].ravel()
+                conf_step = np.zeros((n_cls, n_cls), dtype=np.int64)
+                for fv, tv in zip(a, b):
+                    if (fv in class_to_idx) and (tv in class_to_idx):
+                        conf_step[class_to_idx[fv], class_to_idx[tv]] += 1
+
+                # 每一年都执行与原经验规则一致的单步修正，再叠加
+                conf_step = _apply_manual_adjustment_for_single_step(conf_step)
+                conf += conf_step
+            return conf
+
+        ccdc_tif_dir = r'G:\A_GEDI_Floodplain_vegh\Veg_map\CCDC_tif'
+        # ------------ 11. 逐年连续计算并叠加各阶段转换矩阵 ------------
+        conf_1988_2003 = _build_period_confusion_from_annual(
+            years=range(1988, 2001),
+            tif_dir=ccdc_tif_dir,
+            reclass_func=reclass,
+            classes=classes,
+            class_to_idx=class_to_idx,
+            nodata_vals=nodata_vals,
+            col_slice=rangef,
+            correction_scale=0.3,
+        )
+        conf_2003_2013 = _build_period_confusion_from_annual(
+            years=range(2000, 2014),
+            tif_dir=ccdc_tif_dir,
+            reclass_func=reclass,
+            classes=classes,
+            class_to_idx=class_to_idx,
+            nodata_vals=nodata_vals,
+            col_slice=rangef,
+            correction_scale=0.3,
+        )
+        conf_2013_2023 = _build_period_confusion_from_annual(
+            years=range(2013, 2024),
+            tif_dir=ccdc_tif_dir,
+            reclass_func=reclass,
+            classes=classes,
+            class_to_idx=class_to_idx,
+            nodata_vals=nodata_vals,
+            col_slice=rangef,
+            correction_scale=0.3,
+        )
 
         # 构造行列标签
         row_labels_1988 = [f"{class_name_map.get(c, f'Class {c}')} (1988)" for c in classes]
@@ -1942,11 +2082,58 @@ def fig39():
             ]]
 
             # 用和图一样的输出目录（Fig.3.9 文件夹）
-            out_dir = r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.9'
+            out_dir = r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.4'
             os.makedirs(out_dir, exist_ok=True)
             summary_csv_path = os.path.join(out_dir, 'Succession_pixel_counts_all_reaches.csv')
             final_df.to_csv(summary_csv_path, index=False, encoding='utf-8-sig')
             print(f"[INFO] 演替像元统计表已输出（已按 01 10 02 20 03 30 12 21 13 31 23 32 排序）：{summary_csv_path}")
+
+            # ========== 14. 输出 3 个“时段宽表”：列=河段，行=12 条正/逆向路径 ==========
+            reach_order = ["宜枝河段", "荆江河段", "城汉河段", "汉湖河段", "长江中游河段"]
+            period_order = [
+                ("1988_2000", "三峡工程运用前（1988~2003年）"),
+                ("2000_2013", "三峡工程运用初期（2003~2013年）"),
+                ("2013_2023", "三峡工程运用十年后（2013~2023年）"),
+            ]
+
+            # 表格行顺序（与 final_df 的 pair_order 一致）
+            row_name_map = {
+                (0, 1): "裸露洲滩 >>> 草本植物群落",
+                (1, 0): "裸露洲滩 <<< 草本植物群落",
+                (0, 2): "裸露洲滩 >>> 挺水植物群落",
+                (2, 0): "裸露洲滩 <<< 挺水植物群落",
+                (0, 3): "裸露洲滩 >>> 木本植物群落",
+                (3, 0): "裸露洲滩 <<< 木本植物群落",
+                (1, 2): "草本植物群落 >>> 挺水植物群落",
+                (2, 1): "草本植物群落 <<< 挺水植物群落",
+                (1, 3): "草本植物群落 >>> 木本植物群落",
+                (3, 1): "草本植物群落 <<< 木本植物群落",
+                (2, 3): "挺水植物群落 >>> 木本植物群落",
+                (3, 2): "挺水植物群落 <<< 木本植物群落",
+            }
+
+            for period_key, period_label in period_order:
+                df_p = final_df[final_df["period"] == period_label].copy()
+                pivot_df = df_p.pivot_table(
+                    index=["from_class", "to_class"],
+                    columns="reach",
+                    values="pixel_count",
+                    aggfunc="sum",
+                    fill_value=0
+                )
+
+                ordered_index = pd.MultiIndex.from_tuples(pair_order_list, names=["from_class", "to_class"])
+                table_df = pivot_df.reindex(ordered_index, fill_value=0)
+                table_df = table_df.reindex(columns=reach_order, fill_value=0)
+                table_df = table_df.astype(np.int64)
+
+                # 使用与要求一致的纵向索引名称（而非额外一列）
+                table_df.index = [row_name_map.get((i, j), f"{i}->{j}") for i, j in pair_order_list]
+                table_df.index.name = "演替类型"
+
+                table_path = os.path.join(out_dir, f"Succession_transition_table_{period_key}.csv")
+                table_df.to_csv(table_path, index=True, encoding='utf-8-sig')
+                print(f"[INFO] 时段宽表已输出：{table_path}")
 
 
 def fig311():
@@ -3005,12 +3192,12 @@ def fig300():  # 1. CSV 列表
 
 
 if __name__ == '__main__':
-    # fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.1')
-    # fig399()
+    fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure_\Fig.3.1')
+    # fig38()
     # fig32_sup('D:\\A_PhD_Main_paper\\Chap.3\\Figure\\Fig.3.2\\')
     # fig32('D:\\A_PhD_Main_paper\\Chap.3\\Figure\\Fig.3.2\\')
-    # # fig39()
-    # # premap()
+    fig39()
+    # premap()
     # # fig32('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.2')
-    fig33('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.3')
+    # fig33('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.3')
     # fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.1')

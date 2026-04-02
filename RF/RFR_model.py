@@ -19,7 +19,7 @@ from sklearn.metrics import mean_absolute_error
 import itertools
 from scipy.stats import pearsonr, kurtosis, variation, cramervonmises_2samp, wasserstein_distance
 
-shap.initjs()
+# shap.initjs()
 
 
 def Ensemble_bagging_contribution(df: pd.DataFrame, x_feature, y_feature, max_d=None, model_name=None, normalised_feature=True):

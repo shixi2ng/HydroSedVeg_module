@@ -1519,6 +1519,72 @@ def link_GEDI_VegType_inform(VegType_arr, VegType_GeoTransform, gedi_df, furname
             print(f'Failed linking the Veg Type   with the GEDI dataframe! in {str(time.time() - t1)[0:6]}s  ({str(i)} of {str(df_size)})')
     return gedi_df
 
+def link_GEDI_tif_inform(tif_arr, tif_GeoTransform, gedi_df, furname, tif_name: str,
+                         GEDI_link_tif_spatial_interpolate_method_list: list, tif_nodata=None,
+                         GEDI_circle_diameter: int = 25):
+
+    df_size = gedi_df.shape[0]
+    furlat, furlon = furname + '_' + 'lat', furname + '_' + 'lon'
+    gedi_df = gedi_df.reset_index()
+
+    # Insert new column for GEDI_df based on spatial methods
+    for spatial_method in GEDI_link_tif_spatial_interpolate_method_list:
+        gedi_df.insert(loc=len(gedi_df.columns), column=f'{tif_name}_{spatial_method}', value=np.nan)
+        gedi_df.insert(loc=len(gedi_df.columns), column=f'{tif_name}_{spatial_method}_reliability', value=np.nan)
+
+    # itr through the gedi_df
+    for i in range(df_size):
+
+        # Timing
+        t1 = time.time()
+        print(f'Start linking the tif value with the GEDI dataframe!({str(i)} of {str(df_size)})')
+        try:
+            lat, lon = gedi_df[furlat][i], gedi_df[furlon][i]
+            point_coords = [lon, lat]
+
+            # Process the spatial range
+            centre_pixel_xy = [int(np.floor((point_coords[0] - tif_GeoTransform[0]) / tif_GeoTransform[1])),
+                               int(np.floor((point_coords[1] - tif_GeoTransform[3]) / tif_GeoTransform[5]))]
+
+            if 0 <= centre_pixel_xy[1] <= tif_arr.shape[0] and 0 <= centre_pixel_xy[0] <= tif_arr.shape[1]:
+                for spatial_method in GEDI_link_tif_spatial_interpolate_method_list:
+                    if spatial_method == 'nearest_neighbor':
+                        value_arr = tif_arr[centre_pixel_xy[1]: centre_pixel_xy[1] + 1, centre_pixel_xy[0]: centre_pixel_xy[0] + 1]
+                    elif spatial_method == 'focal':
+                        value_arr = tif_arr[max(centre_pixel_xy[1] - 1, 0): min(centre_pixel_xy[1] + 2, tif_arr.shape[0]),
+                                            max(centre_pixel_xy[0] - 1, 0): min(centre_pixel_xy[0] + 2, tif_arr.shape[1])]
+                    elif spatial_method == 'area_average':
+                        GEDI_circle = create_circle_polygon(point_coords, GEDI_circle_diameter)
+                        min_x, min_y, max_x, max_y = GEDI_circle.bounds
+                        ul_corner = [int(np.floor((min_x - tif_GeoTransform[0]) / tif_GeoTransform[1])),
+                                     int(np.floor((max_y - tif_GeoTransform[3]) / tif_GeoTransform[5]))]
+                        lr_corner = [int(np.ceil((max_x - tif_GeoTransform[0]) / tif_GeoTransform[1])),
+                                     int(np.ceil((min_y - tif_GeoTransform[3]) / tif_GeoTransform[5]))]
+                        value_arr = tif_arr[max(ul_corner[1], 0): min(lr_corner[1] + 1, tif_arr.shape[0]),
+                                            max(ul_corner[0], 0): min(lr_corner[0] + 1, tif_arr.shape[1])]
+                    else:
+                        raise Exception('The spatial interpolation method is not supported!')
+
+                    value_arr = np.array(value_arr).astype('float64').flatten()
+                    value_arr = value_arr[~np.isnan(value_arr)]
+                    if tif_nodata is not None:
+                        value_arr = value_arr[value_arr != tif_nodata]
+
+                    if value_arr.size == 0:
+                        tif_value = np.nan
+                    else:
+                        tif_value = np.nanmean(value_arr)
+
+                    if ~np.isnan(tif_value):
+                        gedi_df.loc[i, f'{tif_name}_{spatial_method}'] = tif_value
+                        gedi_df.loc[i, f'{tif_name}_{spatial_method}_reliability'] = 0
+
+                print(f'Finish linking the tif value with the GEDI dataframe! in {str(time.time() - t1)[0:6]}s  ({str(i)} of {str(df_size)})')
+        except:
+            print(traceback.format_exc())
+            print(f'Failed linking the tif value with the GEDI dataframe! in {str(time.time() - t1)[0:6]}s  ({str(i)} of {str(df_size)})')
+    return gedi_df
+
 
 def link_GEDI_RSdc_inform(RSdc, RSdc_GeoTransform, RSdc_doy_list, RSdc_index, Phemedc, gedi_df, furname,
                           GEDI_link_RS_spatial_interpolate_method_list, temporal_search_window: int = 96, GEDI_circle_diameter: int = 25):

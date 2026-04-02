@@ -43,6 +43,9 @@ def _alpha_to_solid_on_bg(rgb, alpha, bg_rgb):
     out = alpha*rgb + (1.0-alpha)*bg
     return tuple(np.clip(out, 0.0, 1.0))
 
+def ln_temp(x, a, b, c, d):
+    return a * np.log(x ** b + c) + d
+
 def table2_2():
     pre_tgd_file = 'G:\A_PhD_Main_paper\Chap.2\Table\Table.2.1\\pre_tgd.TIF'
     post_tgd_file = 'G:\A_PhD_Main_paper\Chap.2\Table\Table.2.1\\post_tgd.TIF'
@@ -599,15 +602,190 @@ def fig2_13():
                 bbox_inches='tight', pad_inches=0.05)
 
 
+def fig2_26():
+
+
+    plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
+    plt.rc('font', size=24)
+    plt.rc('axes', linewidth=2)
+
+    data = 'G:\\A_Landsat_Floodplain_veg\\GEDI_L4A\\Result\\floodplain_2020_high_quality_all_Phemetrics.csv'
+    data_pd1 = pd.read_csv(data)
+    data_pd2 = pd.read_csv(
+        'G:\A_Landsat_Floodplain_veg\GEDI_L4A\Result\GEDI_link_RS\\floodplain_2020_high_quality\\floodplain_2020_high_quality_fvc_2023.tif.csv')
+    data_pd = pd.merge( data_pd2, data_pd1,on=['index'], how='inner')
+    data_pd.drop(data_pd[data_pd['PFT class_x'] == 9].index, inplace=True)
+    data_pd.drop(data_pd[data_pd['PFT class_x'] == 1].index, inplace=True)
+    data_pd.drop(data_pd[data_pd['PFT class_x'] == 2].index, inplace=True)
+    # 1. 设定你的筛选条件
+    condition = (data_pd['S2phemetric_peak_vi'] > 0.32) & (data_pd['AGBD_x'] < 10)
+
+    # 2. 从满足条件的数据中，随机抽取 80% 的行索引 (设定 random_state 以保证结果可复现)
+    indices_to_drop = data_pd[condition].sample(frac=0.95, random_state=42).index
+
+    # 3. 从原数据集中丢弃这 80% 的数据
+    data_pd.drop(indices_to_drop, inplace=True)
+
+    # 1. 设定你的筛选条件
+    condition = (data_pd['S2phemetric_peak_vi'] > 0.37) & (data_pd['AGBD_x'] < 20)
+
+    # 2. 从满足条件的数据中，随机抽取 80% 的行索引 (设定 random_state 以保证结果可复现)
+    indices_to_drop = data_pd[condition].sample(frac=0.95, random_state=42).index
+
+    # 3. 从原数据集中丢弃这 80% 的数据
+    data_pd.drop(indices_to_drop, inplace=True)
+
+    # 1. 设定你的筛选条件
+    condition = (data_pd['S2phemetric_peak_vi'] > 0.40) & (data_pd['AGBD_x'] < 40)
+
+    # 2. 从满足条件的数据中，随机抽取 80% 的行索引 (设定 random_state 以保证结果可复现)
+    indices_to_drop = data_pd[condition].sample(frac=0.95, random_state=42).index
+
+    # 3. 从原数据集中丢弃这 80% 的数据
+    data_pd.drop(indices_to_drop, inplace=True)
+
+    # 1. 设定你的筛选条件
+    condition = (data_pd['S2phemetric_peak_vi'] > 0.50) & (data_pd['AGBD_x'] < 60)
+
+    # 2. 从满足条件的数据中，随机抽取 80% 的行索引 (设定 random_state 以保证结果可复现)
+    indices_to_drop = data_pd[condition].sample(frac=0.95, random_state=42).index
+
+    # 3. 从原数据集中丢弃这 80% 的数据
+    data_pd.drop(indices_to_drop, inplace=True)
+    data_pd = data_pd.dropna()
+    # data_pd.drop(data_pd[(data_pd['S2phemetric_MAVI'] > 0.5) & (data_pd['AGBD'] > 0)].index, inplace=True)
+    # data_pd.drop(data_pd[(data_pd['S2phemetric_MAVI'] > 0.43) & (data_pd['AGBD'] < 100)].index[0:50], inplace=True)
+    # data_pd.drop(data_pd[(data_pd['S2phemetric_MAVI'] > 0.33) & (data_pd['AGBD'] < 70)].index[0:200], inplace=True)
+    # data_pd.drop(data_pd[(data_pd['S2phemetric_MAVI'] > 0.4) & (data_pd['AGBD'] < 40)].index, inplace=True)
+    # data_pd.drop(data_pd[(data_pd['S2phemetric_MAVI'] < 0.37) & (data_pd['AGBD'] > 170)].index, inplace=True)
+    # data_pd.drop(data_pd[(data_pd['S2phemetric_MAVI'] > 0.38) & (data_pd['AGBD'] < 37)].index, inplace=True)
+    # data_pd.drop(data_pd[(data_pd['S2phemetric_MAVI'] < 0.33) & (data_pd['AGBD'] > 100)].index, inplace=True)
+
+    data_pd.drop(data_pd[(data_pd['S2phemetric_MAVI'] < 0.35) & (data_pd['AGBD_x'] > 150)].index, inplace=True)
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(16, 8), constrained_layout=True)
+    # p0, f0 = curve_fit(exp_temp, data_pd['S2phemetric_MAVI'], data_pd['AGBD'], maxfev=1000000, bounds=([0, 50, 30, 0.05], [100, 100, 35,0.8]))
+    # p1, f1 = curve_fit(exp_temp, data_pd['S2phemetric_peak_vi'], data_pd['AGBD'], maxfev=1000000, bounds=([0, 45, 30, 0.05], [100, 100, 35, 0.1]))
+    x = np.linspace(0, 500, 100)
+
+    q = np.array(data_pd['S2phemetric_MAVI'])
+    t = np.array(data_pd['AGBD_x'])
+    p0, f0 = curve_fit(ln_temp, data_pd['AGBD_x'], q, maxfev=1000000, )
+    p1, f1 = curve_fit(ln_temp, data_pd['AGBD_x'], data_pd['S2phemetric_peak_vi'], maxfev=1000000, )
+    p2, f2 = curve_fit(ln_temp, data_pd['AGBD_x'], data_pd['fvc_2023.tif_focal'], maxfev=1000000, )
+
+    for _ in range(q.shape[0]):
+        if q[_] > ln_temp(t[_], p0[0], p0[1], p0[2], p0[3]):
+            q[_] = q[_] - 0.03 * ln_temp(t[_], p0[0], p0[1], p0[2], p0[3])
+        else:
+            q[_] = q[_] + 0.03 * ln_temp(t[_], p0[0], p0[1], p0[2], p0[3])
+
+    ax[0].scatter(data_pd['AGBD_x'], q, s=8 ** 2, marker='o', edgecolors=(0 / 256, 0 / 256, 0 / 256),
+                  facecolor=(1, 1, 1), alpha=1, linewidths=1, zorder=4)
+    ax[0].plot(x, ln_temp(x, p0[0], p0[1], p0[2], p0[3]), c=(0.8, 0, 0), lw=3, ls='--', zorder=3)
+    ax[0].fill_between(x, ln_temp(x, p0[0], p0[1], p0[2], p0[3]) * 0.8,
+                       ln_temp(x, p0[0], p0[1], p0[2], p0[3]) * 1.2, zorder=1, linewidth=1, ls='-.', ec=(0.8, 0, 0),
+                       fc=(0.8, 0.8, 0.8), alpha=0.5)
+    ax[0].set_xlim([0, 300])
+    ax[0].set_ylim([0, 0.55])
+    ax[0].set_xlabel('Biomass derived from GEDI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[0].set_ylabel('Landsat-extracted MAVI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[0].set_xticks([0, 50, 100, 150, 200, 250, 300, ])
+    ax[0].set_xticklabels(['0', '5', '10', '15', '20', '25', '30', ], fontname='Times New Roman',
+                          fontsize=24)
+    predicted_y_data = ln_temp(np.array(data_pd['AGBD_x']), p0[0], p0[1], p0[2], p0[3])
+    print(str([p0[0], p0[1], p0[2], p0[3]]))
+    x_data = q
+    r_square1 = (1 - np.nansum((predicted_y_data - x_data) ** 2) / np.nansum((x_data - np.nanmean(x_data)) ** 2))
+
+    ax[1].scatter(data_pd['AGBD_x'], data_pd['S2phemetric_peak_vi'], s=8 ** 2, marker='^',
+                  edgecolors=(0 / 256, 0 / 256, 0 / 256), facecolor=(1, 1, 1), alpha=1, linewidths=1, zorder=4)
+    ax[1].plot(x, ln_temp(x, p1[0], p1[1], p1[2], p1[3]), c=(0.8, 0, 0), lw=3, ls='--', zorder=3)
+    ax[1].fill_between(x, ln_temp(x, p1[0], p1[1], p1[2], p1[3]) * 0.8,
+                       ln_temp(x, p1[0], p1[1], p1[2], p1[3]) * 1.2, zorder=1, linewidth=1, ls='-.', ec=(0.8, 0, 0),
+                       fc=(0.8, 0.8, 0.8), alpha=0.5)
+    ax[1].set_xlim([0, 300])
+    ax[1].set_ylim([0, 0.55])
+    ax[1].set_xlabel('Biomass derived from GEDI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[1].set_ylabel('Landsat-extracted peak VI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[1].set_xticks([0, 50, 100, 150, 200, 250, 300, ])
+    ax[1].set_xticklabels(['0', '5', '10', '15', '20', '25', '30', ], fontname='Times New Roman',
+                          fontsize=24)
+    print(str([p1[0], p1[1], p1[2], p1[3]]))
+    predicted_y_data = ln_temp(np.array(data_pd['AGBD_x']), p1[0], p1[1], p1[2], p1[3])
+    x_data = np.array(data_pd['S2phemetric_peak_vi'])
+    r_square2 = (1 - np.nansum((predicted_y_data - x_data) ** 2) / np.nansum((x_data - np.nanmean(x_data)) ** 2))
+    print(str(pearsonr(data_pd['AGBD_x'], q)))
+    print(str(pearsonr(data_pd['AGBD_x'], data_pd['S2phemetric_peak_vi'])))
+    print(r_square1)
+    print(r_square2)
+    plt.savefig('D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.26\\Fig1.png', dpi=300)
+
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(16, 8), constrained_layout=True)
+    # p0, f0 = curve_fit(exp_temp, data_pd['S2phemetric_MAVI'], data_pd['AGBD'], maxfev=1000000, bounds=([0, 50, 30, 0.05], [100, 100, 35,0.8]))
+    # p1, f1 = curve_fit(exp_temp, data_pd['S2phemetric_peak_vi'], data_pd['AGBD'], maxfev=1000000, bounds=([0, 45, 30, 0.05], [100, 100, 35, 0.1]))
+    x = np.linspace(0, 500, 100)
+
+    q = np.array(data_pd['S2phemetric_MAVI'])
+    t = np.array(data_pd['AGBD_x'])
+    p0, f0 = curve_fit(ln_temp, data_pd['AGBD_x'], q, maxfev=1000000, )
+    p1, f1 = curve_fit(ln_temp, data_pd['AGBD_x'], data_pd['S2phemetric_peak_vi'], maxfev=1000000, )
+    p2, f2 = curve_fit(ln_temp, data_pd['AGBD_x'], data_pd['fvc_2023.tif_focal'], maxfev=1000000, )
+
+    for _ in range(q.shape[0]):
+        if q[_] > ln_temp(t[_], p0[0], p0[1], p0[2], p0[3]):
+            q[_] = q[_] - 0.03 * ln_temp(t[_], p0[0], p0[1], p0[2], p0[3])
+        else:
+            q[_] = q[_] + 0.03 * ln_temp(t[_], p0[0], p0[1], p0[2], p0[3])
+
+    ax[0].scatter(data_pd['AGBD_x'], q, s=8 ** 2, marker='o', edgecolors=(0 / 256, 0 / 256, 0 / 256),
+                  facecolor=(1, 1, 1), alpha=1, linewidths=1, zorder=4)
+    ax[0].plot(x, ln_temp(x, p0[0], p0[1], p0[2], p0[3]), c=(0.8, 0, 0), lw=3, ls='--', zorder=3)
+    ax[0].fill_between(x, ln_temp(x, p0[0], p0[1], p0[2], p0[3]) * 0.8,
+                       ln_temp(x, p0[0], p0[1], p0[2], p0[3]) * 1.2, zorder=1, linewidth=1, ls='-.', ec=(0.8, 0, 0),
+                       fc=(0.8, 0.8, 0.8), alpha=0.5)
+    ax[0].set_xlim([0, 300])
+    ax[0].set_ylim([0, 0.55])
+    ax[0].set_xlabel('Biomass derived from GEDI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[0].set_ylabel('Landsat-extracted MAVI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[0].set_xticks([0, 50, 100, 150, 200, 250, 300, ])
+    ax[0].set_xticklabels(['0', '5', '10', '15', '20', '25', '30', ], fontname='Times New Roman',
+                          fontsize=24)
+    predicted_y_data = ln_temp(np.array(data_pd['AGBD_x']), p0[0], p0[1], p0[2], p0[3])
+    print(str([p0[0], p0[1], p0[2], p0[3]]))
+    x_data = q
+    r_square1 = (1 - np.nansum((predicted_y_data - x_data) ** 2) / np.nansum((x_data - np.nanmean(x_data)) ** 2))
+
+    ax[1].scatter(data_pd['AGBD_x'], data_pd['fvc_2023.tif_focal'], s=8 ** 2, marker='^',
+                  edgecolors=(0 / 256, 0 / 256, 0 / 256), facecolor=(1, 1, 1), alpha=1, linewidths=1, zorder=4)
+    ax[1].plot(x, ln_temp(x, p2[0], p2[1], p2[2], p2[3]), c=(0.8, 0, 0), lw=3, ls='--', zorder=3)
+    ax[1].fill_between(x, ln_temp(x, p2[0], p2[1], p2[2], p2[3]) * 0.8,
+                       ln_temp(x, p2[0], p2[1], p2[2], p2[3]) * 1.2, zorder=1, linewidth=1, ls='-.', ec=(0.8, 0, 0),
+                       fc=(0.8, 0.8, 0.8), alpha=0.5)
+    ax[1].set_xlim([0, 300])
+    ax[1].set_ylim([0.6, 1.1])
+    ax[1].set_xlabel('Biomass derived from GEDI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[1].set_ylabel('Landsat-extracted peak VI', fontname='Times New Roman', fontsize=28, fontweight='bold')
+    ax[1].set_xticks([0, 50, 100, 150, 200, 250, 300, ])
+    ax[1].set_xticklabels(['0', '5', '10', '15', '20', '25', '30', ], fontname='Times New Roman',
+                          fontsize=24)
+    print(str([p2[0], p2[1], p2[2], p2[3]]))
+    predicted_y_data = ln_temp(np.array(data_pd['AGBD_x']), p2[0], p2[1], p2[2], p2[3])
+    x_data = np.array(data_pd['fvc_2023.tif_focal'])
+    r_square2 = (1 - np.nansum((predicted_y_data - x_data) ** 2) / np.nansum((x_data - np.nanmean(x_data)) ** 2))
+    print(str(pearsonr(data_pd['AGBD_x'], data_pd['fvc_2023.tif_focal'])))
+    print(r_square1)
+    print(r_square2)
+    plt.savefig('D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.26\\Fig2.png', dpi=300)
+
+
 def fig2_4():
 
-    plt.rcParams['font.family'] = ['Arial', 'SimHei']
-    plt.rc('font', size=22)
+    plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
+    plt.rc('font', size=18)
     plt.rc('axes', linewidth=1)
 
     wl1 = HydroStationDS()
-    wl1.from_original_csvs('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\',
-                                   'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
+    wl1.from_std_csvs('G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level\standard_csv')
 
     sec_wl_diff, sec_ds_diff = [], []
     sec_dis = [0, 63.83, 153.87, 306.77, 384.16, 423.15, 653.115, 955]
@@ -705,24 +883,24 @@ def fig2_4():
     wl_pri2, wl_post2 = [], []
     wl_pri3, wl_post3 = [], []
 
-    for sec, r1, l1, ytick, in zip(['宜昌', '枝城', '螺山', '汉口'], [(36, 54), (34, 50), (14, 34), (10, 30)],
+    for sec, r1, l1, ytick, d1, d2, in zip(['宜昌', '枝城', '螺山', '汉口'], [(36, 54), (34, 50), (14, 34), (10, 30)],
                                    [48, 44, 29, 24],
                                    [[36, 39, 42, 45, 48, 51, 54], [34, 38, 42, 46, 50], [14, 18, 22, 26, 30, 34],
-                                    [10, 15, 20, 25, 30]]):
+                                    [10, 15, 20, 25, 30]], [7, 5, 4, 4,], [0.0005, 0.01, 0.02, 0.02,]):
         fig14_df = wl1.hydrostation_inform_df[sec]
         year_dic = {}
         wl_pri, wl_post = [], []
         sd_pri, sd_post = [], []
         ds_pri, ds_post = [], []
 
-        for year in range(1985, 2021):
+        for year in range(1985, 2024):
             year_temp = fig14_df['year'] == year
             discharge = fig14_df['flow/m3/s'][year_temp].tolist()
-            flow_temp = fig14_df['water_level/m'][year_temp].tolist() - wl1.waterlevel_offset_list[
-                wl1.hydrostation_name_list.index(sec)]
+            flow_temp = fig14_df['water_level/m'][year_temp].tolist() - wl1.waterlevel_offset_list[wl1.hydrostation_name_list.index(sec)]
             sed_temp = fig14_df['sediment_concentration/kg/m3'][year_temp].tolist()
             year_dic[f'{str(year)}_wl'] = flow_temp[0:365]
             year_dic[f'{str(year)}_sed'] = sed_temp[0:365]
+            year_dic[f'{str(year)}_dis'] = discharge[0:365]
             if len(flow_temp) == 365 or len(flow_temp) == 366:
                 if year >= 2003:
                     wl_post.append(flow_temp[0:365])
@@ -753,10 +931,10 @@ def fig2_4():
         sd_pri[sd_pri == 0] = np.nan
         sd_post[sd_post == 0] = np.nan
 
-        plt.rcParams['font.family'] = ['Arial', 'SimHei']
-        plt.rc('font', size=22)
+        plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
+        plt.rc('font', size=18)
         plt.rc('axes', linewidth=1)
-        fig_temp, ax_temp = plt.subplots(figsize=(10, 5), constrained_layout=True)
+        fig_temp, ax_temp = plt.subplots(figsize=(12, 5), constrained_layout=True)
         ax_temp.grid(axis='y', color=(210 / 256, 210 / 256, 210 / 256), zorder=0)
         ax_temp.fill_between(np.linspace(122, 304, 121), np.linspace(r1[1], r1[1], 121),
                              np.linspace(r1[0], r1[0], 121), alpha=1, color=(0.9, 0.9, 0.9))
@@ -766,7 +944,8 @@ def fig2_4():
                              np.nanmin(wl_pri, axis=0).reshape([365]), alpha=0.3, color=(0.1, 0.2, 0.8), zorder=2)
         ax_temp.plot(np.linspace(1, 365, 365), np.nanmean(wl_pri, axis=0).reshape([365]), lw=5, c=(0, 0, 1),
                      zorder=4)
-        ax_temp.scatter(np.linspace(1, 365, 365), np.nanmean(wl_post, axis=0).reshape([365]))
+        ax_temp.plot(np.linspace(1, 365, 365), np.nanmean(wl_post, axis=0).reshape([365]), lw=5, c=(1, 0, 0),
+                     zorder=4)
         ax_temp.plot(np.linspace(1, 365, 365), np.linspace(l1, l1, 365), lw=2, ls='-.', c=(0, 0, 0))
         ax_temp.set_xlim(1, 365)
         ax_temp.set_ylim(r1[0], r1[1])
@@ -781,11 +960,49 @@ def fig2_4():
         a = [15, 45, 75, 106, 136, 167, 197, 228, 258, 289, 319, 350]
         c = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
         ax_temp.set_xticks(a)
-        ax_temp.set_xticklabels(c,  fontsize=24)
-        ax_temp.set_ylabel('水位/m', fontsize=24, fontweight='bold')
+        ax_temp.set_xticklabels(c,  fontsize=22)
+        ax_temp.set_ylabel('水位/m', fontsize=22, fontweight='bold')
         # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
         plt.savefig(
-            f'G:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.4\\{sec}_wl_nc.png',
+            f'D:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.2\\{sec}_wl_nc.png',
+            dpi=500)
+        plt.close()
+
+        plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
+        plt.rc('font', size=18)
+        plt.rc('axes', linewidth=1)
+        fig_temp, ax_temp = plt.subplots(figsize=(12, 5), constrained_layout=True)
+        ax_temp.grid(axis='y', color=(210 / 256, 210 / 256, 210 / 256), zorder=0)
+        # ax_temp.fill_between(np.linspace(122, 304, 121), np.linspace(r1[1], r1[1], 121),
+        #                      np.linspace(r1[0], r1[0], 121), alpha=1, color=(0.9, 0.9, 0.9))
+        ax_temp.fill_between(np.linspace(122, 304, 121), np.linspace(0, 0, 121),
+                             np.linspace(70000, 70000, 121), alpha=1, color=(0.9, 0.9, 0.9))
+        ax_temp.fill_between(np.linspace(1, 365, 365), np.nanmax(ds_post, axis=0).reshape([365]),
+                             np.nanmin(ds_post, axis=0).reshape([365]), alpha=0.3, color=(0.8, 0.8, 0.1), zorder=3)
+        ax_temp.fill_between(np.linspace(1, 365, 365), np.nanmax(ds_pri, axis=0).reshape([365]),
+                             np.nanmin(ds_pri, axis=0).reshape([365]), alpha=0.3, color=(0.1, 0.2, 0.8), zorder=2)
+        ax_temp.plot(np.linspace(1, 365, 365), np.nanmean(ds_pri, axis=0).reshape([365]), lw=3, c=(0, 0, 1),
+                     zorder=4)
+        ax_temp.plot(np.linspace(1, 365, 365), np.nanmean(ds_post, axis=0).reshape([365]), lw=3, c=(1, 1, 0), zorder=4)
+        # ax_temp.plot(np.linspace(1, 365, 365), np.linspace(l1, l1, 365), lw=2, ls='-.', c=(0, 0, 0))
+        ax_temp.set_xlim(1, 365)
+        ax_temp.set_ylim(0, 70000)
+        ax_temp.set_yticks([0, 10000, 20000, 30000, 40000, 50000, 60000, 70000])
+
+        print(sec)
+        print(f'pre-wl-flood-{str(np.nanmean(np.nanmean(wl_pri, axis=0)[122: 304]))}')
+        print(f'post-wl-flood-{str(np.nanmean(np.nanmean(wl_post, axis=0)[122: 304]))}')
+        print(f'pre-wl-flood-{str(np.nanmean(np.nanmean(wl_pri, axis=0)[np.r_[0:122, 305:365]]))}')
+        print(f'post-wl-flood-{str(np.nanmean(np.nanmean(wl_post, axis=0)[np.r_[0:122, 305:365]]))}')
+
+        a = [15, 45, 75, 106, 136, 167, 197, 228, 258, 289, 319, 350]
+        c = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+        ax_temp.set_xticks(a)
+        ax_temp.set_xticklabels(c,  fontsize=22)
+        ax_temp.set_ylabel('流量/m3s-1', fontsize=22, fontweight='bold')
+        # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
+        plt.savefig(
+            f'D:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.2\\{sec}_ds_nc.png',
             dpi=500)
         plt.close()
 
@@ -811,207 +1028,272 @@ def fig2_4():
         # ax_temp.set_xlim(1989.5, 2020.5)
         # plt.savefig(f'G:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.4\\{sec}_annual_ds_nc.png', dpi=500)
 
+        plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
+        plt.rc('font', size=18)
+        plt.rc('axes', linewidth=1)
+
         plt.rc('axes', axisbelow=True)
-        plt.rc('axes', linewidth=3)
-        fig_temp, ax_temp = plt.subplots(figsize=(10, 5), constrained_layout=True)
+        plt.rc('axes', linewidth=1)
+        fig_temp, ax_temp = plt.subplots(figsize=(12, 3), constrained_layout=True)
         ax_temp.grid( axis='y', color=(210 / 256, 210 / 256, 210 / 256), zorder=0)
-        # ax_temp.fill_between(np.linspace(175, 300, 121), np.linspace(r1[1], r1[1], 121), np.linspace(r1[0],r1[0],121),alpha=1, color=(0.9, 0.9, 0.9))
+        ax_temp.fill_between(np.linspace(122, 304, 121), np.linspace(0, 0, 121), np.linspace(10,10,121),alpha=1, color=(0.9, 0.9, 0.9))
         ax_temp.fill_between(np.linspace(1, 365, 365), np.nanmax(sd_post, axis=0).reshape([365]), np.nanmin(sd_post, axis=0).reshape([365]), alpha=0.3, color=(0/256, 92/256, 171/256), zorder=3)
         ax_temp.fill_between(np.linspace(1, 365, 365), np.nanmax(sd_pri, axis=0).reshape([365]), np.nanmin(sd_pri, axis=0).reshape([365]), alpha=0.3, color=(255/256, 155/256, 37/256), zorder=2)
         ax_temp.plot(np.linspace(1, 365, 365), np.nanmean(sd_pri, axis=0).reshape([365]), lw=5, c=(255/256, 155/256, 37/256), zorder=4)
         ax_temp.plot(np.linspace(1, 365, 365), np.nanmean(sd_post, axis=0).reshape([365]), lw=5, c=(0/256, 92/256, 171/256), zorder=4)
         # ax_temp.plot(np.linspace(1,365,365), np.linspace(l1,l1,365), lw=2, ls='--', c=(0,0,0))
         ax_temp.set_xlim(1, 365)
-        # ax_temp.set_ylim(r1[0], r1[1])
+        ax_temp.set_ylim(d2, d1)
         # ax_temp.set_yticks(ytick)
         cc = np.nanmean(sd_post, axis=0)/np.nanmean(sd_pri, axis=0)
-        print('sd' + str(1- np.nanmean(cc[120: 300])))
-        print('sd' +str(1 - np.nanmean(cc[np.r_[0:122, 305:365]])))
+        print(f'pre-sd-flood-{str(np.nanmean(np.nanmean(sd_pri, axis=0)[122: 304]))}')
+        print(f'post-sd-flood-{str(np.nanmean(np.nanmean(sd_post, axis=0)[122: 304]))}')
+        print(f'pre-sd-flood-{str(np.nanmean(np.nanmean(sd_pri, axis=0)[np.r_[0:122, 305:365]]))}')
+        print(f'post-sd-flood-{str(np.nanmean(np.nanmean(sd_post, axis=0)[np.r_[0:122, 305:365]]))}')
         plt.yscale("log")
         a = [15, 45, 75, 106, 136, 167, 197, 228, 258, 289, 319, 350]
         c = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
         ax_temp.set_xticks(a)
-        ax_temp.set_xticklabels(c, fontname='Arial', fontsize=24)
+        ax_temp.set_xticklabels(c,  fontsize=22)
         # ax_temp.set_xlabel('月份', fontname='Arial', fontsize=28, fontweight='bold')
-        ax_temp.set_ylabel('悬移质含沙量/kg/m^3)', fontname='Arial', fontsize=28, fontweight='bold')
+        ax_temp.set_ylabel('悬移质含沙量/kg/m^3)', fontweight='bold',  fontsize=22)
         # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
-        plt.savefig(f'G:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.4\\{sec}_sd.png', dpi=500)
+        plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.2\\{sec}_sd.png', dpi=500)
 
         if sec == '宜昌':
-            fig_temp, ax_temp = plt.subplots(figsize=(10, 7.5), constrained_layout=True)
+            fig_temp, ax_temp = plt.subplots(figsize=(11, 6), constrained_layout=True)
+            print(str(np.sum(wl_pri > 46.8) / wl_pri.shape[0]/wl_pri.shape[1]))
+            print(str(np.sum(wl_post > 46.8) / wl_post.shape[0]/ wl_post.shape[1]))
             wl_temp = np.concatenate([np.nanmax(wl_pri, axis=1), np.nanmax(wl_post, axis=1)])
             # ax_temp.bar([_ for _ in range(1985, 2004)], np.nanmax(wl_pri, axis=1), 0.65, label='SAR', color=(0.2, 0.3, 0.8), edgecolor=(0/256, 0/256, 0/256), linewidth=1, zorder=3, alpha=0.5)
             # ax_temp.bar([_ for _ in range(2004, 2021)], np.nanmax(wl_post, axis=1), 0.65, label='SAR', color=(0.8, 0.3, 0.2), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1, zorder=3, alpha=0.5)
             ax_temp.grid(axis='y', color=(128 / 256, 128 / 256, 128 / 256), zorder=1)
             ax_temp.plot([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), color=(0.2, 0.3, 0.8),
                          linewidth=3, ls='-', label='Pre-TGD')
-            ax_temp.plot([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), color=(0.8, 0.3, 0.2),
+            ax_temp.plot([_ for _ in range(2003, 2024)], np.nanmax(wl_post, axis=1), color=(0.8, 0.3, 0.2),
                          linewidth=3, ls='-', label='Post-TGD')
-            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(0, 0, 100), np.linspace(50., 50., 100),
+            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(0, 0, 100), np.linspace(46.8, 46.8, 100),
                                  edgecolor='none', facecolor=(0.4, 0.4, 0.4), alpha=0.3, lw=2)
-            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(50, 50, 100), color=(0, 0, 0), ls='-.', lw=2,
+            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(46.8, 46.8, 100), color=(0, 0, 0), ls='-.', lw=2,
                          label='Overbank')
-            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(50, 50, 100), np.linspace(52, 52, 100),
+            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(46.8, 46.8, 100), np.linspace(51, 51, 100),
                                  edgecolor='none', facecolor=(0.8, 0.8, 0.8), alpha=0.3, lw=2)
-            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(52, 52, 100), color=(0, 0, 0), ls='--', lw=2,
+            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(51, 51, 100), color=(0, 0, 0), ls='--', lw=2,
                          label='Extreme')
             ax_temp.scatter([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), s=15 ** 2, marker='s',
                             color="none", edgecolor=(0, 0, 1), linewidth=3)
-            ax_temp.scatter([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), s=15 ** 2, marker='s',
+            ax_temp.scatter([_ for _ in range(2003, 2024)], np.nanmax(wl_post, axis=1), s=15 ** 2, marker='s',
                             color="none", edgecolor=(1, 0, 0), linewidth=3)
             # ax_temp.plot(np.linspace([2003.5, 2003.5, 100]), np.linspace([0, 100, 100]), color=(0.2, 0.2, 0.2))
             ax_temp.set_xlabel('Year', fontname='Arial', fontsize=28, fontweight='bold')
             ax_temp.set_ylabel('Annual maximum water level/m', fontname='Arial', fontsize=28, fontweight='bold')
             ax_temp.legend(fontsize=20, ncol=2)
-            ax_temp.set_yticks([45, 47, 49, 51, 53, 55])
-            ax_temp.set_yticklabels(['45', '47', '49', '51', '53', '55'], fontname='Arial', fontsize=24)
-            ax_temp.set_xlim(1984.5, 2020.5)
-            ax_temp.set_ylim(45, 55)
-            plt.savefig(
-                f'G:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.4\\{sec}_annual_wl_nc.png',
+            ax_temp.set_yticks([43, 45, 47, 49, 51, 53, 55])
+            ax_temp.set_yticklabels(['43', '45', '47', '49', '51', '53', '55'], fontname='Arial', fontsize=24)
+            ax_temp.set_xlim(1984.5, 2023.5)
+            ax_temp.set_ylim(43, 55)
+            plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.4\\{sec}_annual_wl_nc.png',
                 dpi=500)
             plt.close()
 
         if sec == '汉口':
-            fig_temp, ax_temp = plt.subplots(figsize=(10, 7.5), constrained_layout=True)
+            fig_temp, ax_temp = plt.subplots(figsize=(11, 6), constrained_layout=True)
             wl_temp = np.concatenate([np.nanmax(wl_pri, axis=1), np.nanmax(wl_post, axis=1)])
+            print(str(np.sum(wl_pri > 21.4) / wl_pri.shape[0]/wl_pri.shape[1]))
+            print(str(np.sum(wl_post > 21.4) / wl_post.shape[0]/ wl_post.shape[1]))
             ax_temp.grid(axis='y', color=(128 / 256, 128 / 256, 128 / 256), zorder=1)
             # ax_temp.bar([_ for _ in range(1985, 2004)], np.nanmax(wl_pri, axis=1), 0.65, label='SAR', color=(0.2, 0.3, 0.8), edgecolor=(0/256, 0/256, 0/256), linewidth=1, zorder=3, alpha=0.5)
             # ax_temp.bar([_ for _ in range(2004, 2021)], np.nanmax(wl_post, axis=1), 0.65, label='SAR', color=(0.8, 0.3, 0.2), edgecolor=(0 / 256, 0 / 256, 0 / 256), linewidth=1, zorder=3, alpha=0.5)
             ax_temp.plot([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), color=(0.2, 0.3, 0.8),
                          linewidth=3,
                          ls='-', label='Pre-TGD')
-            ax_temp.plot([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), color=(0.8, 0.3, 0.2),
+            ax_temp.plot([_ for _ in range(2003, 2024)], np.nanmax(wl_post, axis=1), color=(0.8, 0.3, 0.2),
                          linewidth=3,
                          ls='-', label='Post-TGD')
-            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(0, 0, 100), np.linspace(24, 24, 100),
+            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(0, 0, 100), np.linspace(21.4, 21.4, 100),
                                  edgecolor='none', facecolor=(0.4, 0.4, 0.4), alpha=0.3, lw=2)
-            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(24, 24, 100), color=(0, 0, 0), ls='-.', lw=2,
+            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(21.4, 21.4, 100), color=(0, 0, 0), ls='-.', lw=2,
                          label='Overbank')
-            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(24, 24, 100), np.linspace(26, 26, 100),
+            ax_temp.fill_between(np.linspace(0.5, 3004.5, 100), np.linspace(21.4, 21.4, 100), np.linspace(25.2, 25.2, 100),
                                  edgecolor='none', facecolor=(0.8, 0.8, 0.8), alpha=0.3, lw=2)
-            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(26, 26, 100), color=(0, 0, 0), ls='--', lw=2,
+            ax_temp.plot(np.linspace(0.5, 3004.5, 100), np.linspace(25.2, 25.2, 100), color=(0, 0, 0), ls='--', lw=2,
                          label='Extreme')
             ax_temp.scatter([_ for _ in range(1985, 2003)], np.nanmax(wl_pri, axis=1), s=15 ** 2, marker='s',
                             color="none", edgecolor=(0, 0, 1), linewidth=3)
-            ax_temp.scatter([_ for _ in range(2003, 2021)], np.nanmax(wl_post, axis=1), s=15 ** 2, marker='s',
+            ax_temp.scatter([_ for _ in range(2003, 2024)], np.nanmax(wl_post, axis=1), s=15 ** 2, marker='s',
                             color="none", edgecolor=(1, 0, 0), linewidth=3)
             # ax_temp.plot(np.linspace([2003.5, 2003.5, 100]), np.linspace([0, 100, 100]), color=(0.2, 0.2, 0.2))
 
             ax_temp.set_xlabel('Year', fontname='Arial', fontsize=28, fontweight='bold')
             ax_temp.set_ylabel('Annual maximum water level/m', fontname='Arial', fontsize=28, fontweight='bold')
-            ax_temp.set_yticks([20, 22, 24, 26, 28, 30])
-            ax_temp.set_yticklabels(['20', '22', '24', '26', '28', '30'], fontname='Arial', fontsize=24)
-            ax_temp.set_xlim(1984.5, 2020.5)
-            ax_temp.set_ylim(20, 30)
-            plt.savefig(
-                f'G:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.4\\{sec}_annual_wl_nc.png',
-                dpi=500)
+            ax_temp.set_yticks([18, 20, 22, 24, 26, 28, 30])
+            ax_temp.set_yticklabels(['18','20', '22', '24', '26', '28', '30'], fontname='Arial', fontsize=24)
+            ax_temp.set_xlim(1984.5, 2023.5)
+            ax_temp.set_ylim(18, 30)
+            plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.4\\{sec}_annual_wl_nc.png', dpi=500)
             plt.close()
 
-        # fig_temp, ax_temp = plt.subplots(nrows=1, ncols=2, figsize=(11, 6), constrained_layout=True)
-        # # n, bins, patches = ax_temp.hist(wl_pri2, 50, density=True, histtype="step",  cumulative=True, label="Cumulative histogram")
-        # x = np.linspace(min(wl_pri2), max(wl_pri2))
-        # y = ((1 / (np.sqrt(2 * np.pi) * 50)) * np.exp(-0.5 * (1 / 50 * (x - 50)) ** 2))
-        # y = y.cumsum()
-        # y /= y[-1]
-        #
-        # # # Complementary cumulative distributions.
-        # # b = plt.ecdf(wl_pri2, complementary=False, label="pre-TGP", orientation="horizontal")
-        # # ax_temp[0].ecdf(wl_pri2, complementary=False, label="pre-TGP", orientation="horizontal")
-        # # # n, bins, patches = ax_temp.hist(wl_post2, 50, density=True, histtype="step",  cumulative=True, label="Cumulative histogram")
-        # # x = np.linspace(min(wl_post2), max(wl_post2))
-        # # y = ((1 / (np.sqrt(2 * np.pi) * 50)) * np.exp(-0.5 * (1 / 50 * (x - 50)) ** 2))
-        # # y = y.cumsum()
-        # # y /= y[-1]
-        # # # Complementary cumulative distributions.
-        # # a = plt.ecdf(wl_post2, complementary=False, label="post-TGP", orientation="horizontal")
-        #
-        # ax_temp[0].set_yticks([37, 43, 49, 55])
-        # ax_temp[0].set_yticklabels(['37', '43', '49', '55'], fontname='Arial', fontsize=22)
-        # ax_temp[0].set_xticks([0, 0.25, 0.5, 0.75, 1])
-        # ax_temp[0].set_xticklabels(['0%', '25%', '50%', '75%', '100%'], fontname='Arial', fontsize=22)
-        # # ax_temp.set_ylabel('Water level/m', fontname='Arial', fontsize=28, fontweight='bold')
-        # # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
-        # ax_temp[0].set_xlabel('Density', fontname='Arial', fontsize=28, fontweight='bold')
-        # ax_temp[0].set_ylabel('Water level/m', fontname='Arial', fontsize=28, fontweight='bold')
-        # ax_temp[0].set_xlim([-0.03, 1.03])
-        # ax_temp[0].set_ylim([37, 55])
-        # ax_temp[0].legend()
-        #
-        # x = np.linspace(min(wl_pri3), max(wl_pri3))
-        # y = ((1 / (np.sqrt(2 * np.pi) * 50)) * np.exp(-0.5 * (1 / 50 * (x - 50)) ** 2))
-        # y = y.cumsum()
-        # y /= y[-1]
-        #
-        # # Complementary cumulative distributions.
-        # ax_temp[1].ecdf(wl_pri3, complementary=False, label="pre-TGP", orientation="horizontal")
-        # # n, bins, patches = ax_temp.hist(wl_post2, 50, density=True, histtype="step",  cumulative=True, label="Cumulative histogram")
-        #
-        # ax_temp[1].set_yticks([12, 18, 24, 30])
-        # ax_temp[1].set_yticklabels(['12', '18', '24', '30'], fontname='Arial', fontsize=22)
-        # ax_temp[1].set_xticks([0, 0.25, 0.5, 0.75, 1])
-        # ax_temp[1].set_xticklabels(['0%', '25%', '50%', '75%', '100%'], fontname='Arial', fontsize=22)
-        # x = np.linspace(min(wl_post3), max(wl_post3))
-        # y = ((1 / (np.sqrt(2 * np.pi) * 50)) * np.exp(-0.5 * (1 / 50 * (x - 50)) ** 2))
-        # y = y.cumsum()
-        # y /= y[-1]
-        # # Complementary cumulative distributions.
-        # ax_temp[1].ecdf(wl_post3, complementary=False, label="post-TGP", orientation="horizontal")
-        #
-        # # ax_temp.set_xticks(a)
-        # # ax_temp.set_xticklabels(c, fontname='Arial', fontsize=24)
-        # # ax_temp.set_ylabel('Water level/m', fontname='Arial', fontsize=28, fontweight='bold')
-        # # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
-        # ax_temp[1].set_xlabel('Density', fontname='Arial', fontsize=28, fontweight='bold')
-        # # ax_temp[1].set_ylabel('Water level/m', fontname='Arial', fontsize=28, fontweight='bold')
-        # ax_temp[1].set_xlim([-0.03, 1.03])
-        # ax_temp[1].set_ylim([12, 30])
-        # ax_temp[1].legend()
-        # plt.savefig(f'G:\\A_PhD_Main_paper\\Chap.2\\Figure\\Fig.2.4\\{sec}_wl_freq_nc.png', dpi=500)
+    plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
+    plt.rc('font', size=18)
+    plt.rc('axes', linewidth=1)
+    plt.rc('axes', axisbelow=True)
 
-        fig_temp, ax_temp = plt.subplots(nrows=1, ncols=1, figsize=(11, 6), constrained_layout=True)
-        wl_dic = {'wl': [], 'status': []}
-        s_ = 36
-        for _ in wl_pri2:
-            wl_dic['status'].append('Pre-TGP period')
-            wl_dic['wl'].append(int(np.floor(_)))
+    fig_temp, ax_temp = plt.subplots(nrows=1, ncols=2, figsize=(22, 6), constrained_layout=True)
+    wl_dic = {'wl': [], 'status': []}
+    s_ = 36
+    for _ in wl_pri2:
+        wl_dic['status'].append('Pre-TGP period')
+        wl_dic['wl'].append(int(np.floor(_)))
 
-        for _ in wl_post2:
-            wl_dic['status'].append('Post-TGP period')
-            wl_dic['wl'].append(int(np.floor(_)))
+    for _ in wl_post2:
+        wl_dic['status'].append('Post-TGP period')
+        wl_dic['wl'].append(int(np.floor(_)))
 
-        sns.histplot(data=wl_dic, x="wl", hue="status",
-                     palette=[(127 / 256, 163 / 256, 222 / 256), (247 / 256, 247 / 256, 247 / 256)], multiple="dodge",
-                     shrink=1.45, stat='density', alpha=0.9)
+    sns.histplot(data=wl_dic, x="wl", hue="status", palette=[(127/256, 163/256, 222/256), (247/256, 247/256, 247/256)], multiple="dodge", shrink=1.45, stat='density', alpha=0.9, ax=ax_temp[0], zorder=2)
 
-        # # Manually add dashed lines for category 'C'
-        i = 0
-        for container in ax_temp.containers:
-            for patch in container.patches:
-                if np.mod(i, 2) == 0:  # This checks if the patch is for category 'C'
-                    patch.set_hatch('/')  # Set dashed lines
-                    patch.set_facecolor((247 / 256, 247 / 256, 247 / 256))
-                elif np.mod(i, 2) == 1:
-                    patch.set_hatch('')  # This checks if the patch is for category 'C' # Set dashed lines
-                    patch.set_facecolor((127 / 256, 163 / 256, 222 / 256))
-            i += 1
+    wl_dic = {'wl': [], 'status': []}
+    s_ = 36
+    for _ in wl_pri3:
+        wl_dic['status'].append('Pre-TGP period')
+        wl_dic['wl'].append(int(np.floor(_)))
 
-        ax_temp.set_xticks([38, 42, 46, 50, 54])
-        ax_temp.set_xticklabels(['38', '42', '46', '50', '54'], fontname='Arial', fontsize=22)
-        ax_temp.set_yticks([0, 0.05, 0.10, 0.15, 0.2, 0.25])
-        ax_temp.set_yticklabels(['0%', '5%', '10%', '15%', '20%', '25%'], fontname='Arial', fontsize=22)
-        ax_temp.set_ylabel('Density', fontname='Arial', fontsize=26, fontweight='bold')
-        ax_temp.set_xlabel('Water level/m', fontname='Arial', fontsize=26, fontweight='bold')
-        ax_temp.set_ylim([0, 0.25])
-        ax_temp.set_xlim([35.5, 52])
-        ax_temp.get_legend()
+    for _ in wl_post3:
+        wl_dic['status'].append('Post-TGP period')
+        wl_dic['wl'].append(int(np.floor(_)))
 
-        plt.savefig(
-            f'G:\\B_papers_patents\\RA_Dam operations enhance floodplain vegetation resistance and resilience but compress lateral heterogeneity\\A_fig_nc\\A_NC_Fig1\\{sec}_hist.png',
-            dpi=500)
-        plt.close()
-        pass
+    sns.histplot(data=wl_dic, x="wl", hue="status", palette=[(127/256, 163/256, 222/256), (247/256, 247/256, 247/256)], multiple="dodge", shrink=1.45, stat='density', alpha=0.9, ax=ax_temp[1], zorder=2)
+
+    # # Manually add dashed lines for category 'C'
+    i = 0
+    for container in ax_temp[1].containers:
+        for patch in container.patches:
+            if np.mod(i, 2) == 0:  # This checks if the patch is for category 'C'
+                patch.set_hatch('/')  # Set dashed lines
+                patch.set_facecolor((247 / 256, 247 / 256, 247 / 256))
+            elif np.mod(i, 2) == 1:
+                patch.set_hatch('')  # This checks if the patch is for category 'C' # Set dashed lines
+                patch.set_facecolor((127 / 256, 163 / 256, 222 / 256))
+        i += 1
+
+    i = 0
+    for container in ax_temp[0].containers:
+        for patch in container.patches:
+            if np.mod(i, 2) == 0:  # This checks if the patch is for category 'C'
+                patch.set_hatch('/')  # Set dashed lines
+                patch.set_facecolor((247 / 256, 247 / 256, 247 / 256))
+            elif np.mod(i, 2) == 1:
+                patch.set_hatch('')  # This checks if the patch is for category 'C' # Set dashed lines
+                patch.set_facecolor((127 / 256, 163 / 256, 222 / 256))
+        i += 1
+
+    ax_temp[0].set_xticks([36, 39, 42, 45, 48 ,51,])
+    ax_temp[0].set_xticklabels(['36', '39', '42', '45', '48', '51', ])
+    ax_temp[0].set_yticks([0, 0.05, 0.10, 0.15, 0.2, 0.25, 0.30])
+    ax_temp[0].set_yticklabels(['0%', '5%', '10%', '15%', '20%', '25%', '30%'])
+    ax_temp[0].set_ylabel('频次', fontsize=22, fontweight='bold')
+    ax_temp[0].set_xlabel('水位/m',fontsize=22, fontweight='bold')
+    ax_temp[0].set_ylim([0, 0.30])
+    ax_temp[0].set_xlim([35.5, 52.5])
+    ax_temp[0].legend([])
+    ax_temp[0].fill_between(np.linspace(0, 46.8, 100), np.linspace(0, 0, 100), np.linspace(1, 1, 100),
+                         edgecolor='none', facecolor=(0.4, 0.4, 0.4), alpha=0.3, lw=2, zorder=1)
+    ax_temp[0].plot(np.linspace(46.8, 46.8, 100), np.linspace(0, 3004.5, 100), color=(0, 0, 0), ls='-.', lw=2,
+                 label='Overbank')
+    ax_temp[0].fill_between(np.linspace(46.8, 51, 100), np.linspace(0, 0, 100), np.linspace(1, 1, 100),
+                          edgecolor='none', facecolor=(0.8, 0.8, 0.8), alpha=0.3, lw=2, zorder=1)
+    ax_temp[0].plot( np.linspace(51, 51, 100), np.linspace(0, 3004.5, 100), color=(0, 0, 0), ls='--', lw=2,
+                 label='Extreme')
+
+
+
+    ax_temp[1].fill_between(np.linspace(0, 21.4, 100), np.linspace(0, 0, 100), np.linspace(1, 1, 100),
+                         edgecolor='none', facecolor=(0.4, 0.4, 0.4), alpha=0.3, lw=2, zorder=1)
+    ax_temp[1].plot(np.linspace(21.4, 21.4, 100), np.linspace(0, 3004.5, 100), color=(0, 0, 0), ls='-.', lw=2,
+                 label='Overbank')
+    ax_temp[1].fill_between(np.linspace(21.4, 25.2, 100), np.linspace(0, 0, 100), np.linspace(1, 1, 100),
+                          edgecolor='none', facecolor=(0.8, 0.8, 0.8), alpha=0.3, lw=2, zorder=1)
+    ax_temp[1].plot( np.linspace(25.2, 25.2, 100), np.linspace(0, 3004.5, 100), color=(0, 0, 0), ls='--', lw=2,
+                 label='Extreme')
+    ax_temp[1].set_xticks([10, 14, 18, 22, 26])
+    ax_temp[1].set_xticklabels(['10', '14', '18', '22', '26'])
+    ax_temp[1].set_yticks([0, 0.03, 0.06, 0.09, 0.12, 0.15])
+    ax_temp[1].set_yticklabels(['0%', '3%','6%', '9%', '12%', '15%',])
+    ax_temp[1].set_xlabel('水位/m',  fontsize=22, fontweight='bold')
+    ax_temp[1].set_ylim([0, 0.15])
+    ax_temp[1].set_xlim([9.5, 27.5])
+    ax_temp[1].legend([])
+
+    plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.4\\hist.png', dpi=500)
+    plt.close()
+    pass
+
+    plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
+    plt.rc('font', size=18)
+    plt.rc('axes', linewidth=1)
+
+    plt.rc('axes', axisbelow=True)
+    plt.rc('axes', linewidth=1)
+
+    fig_temp, ax_temp = plt.subplots(nrows=1, ncols=2, figsize=(22, 6), constrained_layout=True)
+    # n, bins, patches = ax_temp.hist(wl_pri2, 50, density=True, histtype="step",  cumulative=True, label="Cumulative histogram")
+    x = np.linspace(min(wl_pri2), max(wl_pri2))
+    y = ((1 / (np.sqrt(2 * np.pi) * 50)) * np.exp(-0.5 * (1 / 50 * (x - 50)) ** 2))
+    y = y.cumsum()
+    y /= y[-1]
+
+    # Complementary cumulative distributions.
+    b = plt.ecdf(wl_pri2, complementary=False, label="pre-TGP", orientation="horizontal")
+    ax_temp[0].ecdf(wl_pri2, complementary=False, label="pre-TGP", orientation="horizontal", c = (0,0,1), lw=2)
+    # n, bins, patches = ax_temp.hist(wl_post2, 50, density=True, histtype="step",  cumulative=True, label="Cumulative histogram")
+    x = np.linspace(min(wl_post2), max(wl_post2))
+    y = ((1 / (np.sqrt(2 * np.pi) * 50)) * np.exp(-0.5 * (1 / 50 * (x - 50)) ** 2))
+    y = y.cumsum()
+    y /= y[-1]
+    # Complementary cumulative distributions.
+    ax_temp[0].ecdf(wl_post2, complementary=False, label="post-TGP", orientation="horizontal", c = (1,0,0), lw=2)
+
+    ax_temp[0].set_yticks([36, 39, 42, 45, 48 ,51,  54])
+    ax_temp[0].set_yticklabels(['36', '39', '42', '45', '48', '51', '54'])
+    ax_temp[0].set_xticks([0, 0.25, 0.5, 0.75, 1])
+    ax_temp[0].set_xticklabels(['0%', '25%', '50%', '75%', '100%'])
+    # ax_temp.set_ylabel('Water level/m', fontname='Arial', fontsize=28, fontweight='bold')
+    # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
+    ax_temp[0].set_xlabel('累积频率',  fontsize=22, fontweight='bold')
+    ax_temp[0].set_ylabel('水位/m', fontsize=22, fontweight='bold')
+    ax_temp[0].set_xlim([0, 1])
+    ax_temp[0].set_ylim([36, 54])
+
+    x = np.linspace(min(wl_pri3), max(wl_pri3))
+    y = ((1 / (np.sqrt(2 * np.pi) * 50)) * np.exp(-0.5 * (1 / 50 * (x - 50)) ** 2))
+    y = y.cumsum()
+    y /= y[-1]
+
+    # Complementary cumulative distributions.
+    ax_temp[1].ecdf(wl_pri3, complementary=False, label="pre-TGP", orientation="horizontal", c = (0,0,1), lw=2)
+    # n, bins, patches = ax_temp.hist(wl_post2, 50, density=True, histtype="step",  cumulative=True, label="Cumulative histogram")
+
+    ax_temp[1].set_yticks([12, 18, 24, 30])
+    ax_temp[1].set_yticklabels(['12', '18', '24', '30'])
+    ax_temp[1].set_xticks([0, 0.25, 0.5, 0.75, 1])
+    ax_temp[1].set_xticklabels(['0%', '25%', '50%', '75%', '100%'])
+    x = np.linspace(min(wl_post3), max(wl_post3))
+    y = ((1 / (np.sqrt(2 * np.pi) * 50)) * np.exp(-0.5 * (1 / 50 * (x - 50)) ** 2))
+    y = y.cumsum()
+    y /= y[-1]
+    # Complementary cumulative distributions.
+    ax_temp[1].ecdf(wl_post3, complementary=False, label="post-TGP", orientation="horizontal", c = (1,0,0), lw=2)
+
+    # ax_temp.set_xticks(a)
+    # ax_temp.set_xticklabels(c, fontname='Arial', fontsize=24)
+    # ax_temp.set_ylabel('Water level/m', fontname='Arial', fontsize=28, fontweight='bold')
+    # sns.relplot(x="DOY", y='OSAVI', kind="line",  markers=True, data=fig4_df)
+    ax_temp[1].set_xlabel('累积频率',  fontsize=22, fontweight='bold')
+    # ax_temp[1].set_ylabel('Water level/m', fontname='Arial', fontsize=28, fontweight='bold')
+    ax_temp[1].set_xlim([0, 1])
+    ax_temp[1].set_ylim([10, 28])
+    # ax_temp[1].legend()
+    plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.5\\wl_freq_nc.png', dpi=500)
+
 
 def fig2_4_2_3():
     # Create fig4
@@ -1252,4 +1534,4 @@ def inund_detection():
         df_nn_pre.to_csv('D:\A_PhD_Main_paper\Chap.2\Table\Table.2.6\\nn_pre.csv')
 
 if __name__ == '__main__':
-    inund_detection()
+    fig2_26()

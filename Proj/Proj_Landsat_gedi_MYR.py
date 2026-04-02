@@ -5,17 +5,16 @@ import numpy as np
 
 from RSDatacube.RSdc import *
 from GEDI_toolbox.GEDI_main import *
-import basic_function as bf
-from RF.VHM import VHM
+
 
 if __name__ == '__main__':
 
-    for denv_ in ['GST']:
-        dc_temp_dic = []
-        for year in [str(_) for _ in range(1986, 2024)]:
-            dc = Denv_dc(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\floodplain_2020_UTM_Denv_datacube\\{denv_}\\{year}\\')
-            bf.create_folder(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\annual_mean\\{denv_}\\')
-            dc.compute_annual_mean(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\annual_mean\\{denv_}\\')
+    # for denv_ in ['GST']:
+    #     dc_temp_dic = []
+    #     for year in [str(_) for _ in range(1986, 2024)]:
+    #         dc = Denv_dc(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\floodplain_2020_UTM_Denv_datacube\\{denv_}\\{year}\\')
+    #         bf.create_folder(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\annual_mean\\{denv_}\\')
+    #         dc.compute_annual_mean(f'G:\\A_Climatology_dataset\\station_dataset\\CMA_dataset\\2400_all_station_1950_2023\CMA_OUTPUT\\annual_mean\\{denv_}\\')
 
     # a = Landsat_dc('G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\Inundation_DT_datacube')
     # b = 0
@@ -130,12 +129,12 @@ if __name__ == '__main__':
     #     d = max(d, np.nanmax(B))
     #     pass
     # pass
-    # dc_temp_dic = []
-    # for year in [str(_) for _ in range(2018, 2024)]:
-    #     dc_temp_dic.append(Phemetric_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\{year}\\'))
-    # rsdc_temp = RS_dcs(*dc_temp_dic)
-    # rsdc_temp.link_GEDI_Phemedc(GEDI_df('G:\\A_Landsat_Floodplain_veg\\GEDI_L4A\\Result\\floodplain_2020_high_quality.xlsx'), ['MAVI'], spatial_interpolate_method=['area_average', 'focal'],)
-
+    dc_temp_dic = []
+    for year in [str(_) for _ in range(2018, 2024)]:
+        dc_temp_dic.append(Phemetric_dc(f'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\{year}\\'))
+    rsdc_temp = RS_dcs(*dc_temp_dic)
+    rsdc_temp.link_GEDI_tif('G:\A_Landsat_Floodplain_veg\GEDI_L4A\Result\\fvc_2023.tif', GEDI_df('G:\\A_Landsat_Floodplain_veg\\GEDI_L4A\\Result\\floodplain_2020_high_quality.xlsx')
+                                                                                                                          , spatial_interpolate_method=['area_average', 'focal'],)
     # # Link high quality GEDI data with RSdc
     # dc_temp_dic = []
     # index_list = [f'{_}_noninun' for _ in ['OSAVI', 'GREEN', 'BLUE', 'RED', 'SWIR', 'SWIR2', 'NIR', 'SVVI', 'TCGREENESS']]

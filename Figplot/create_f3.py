@@ -1,6 +1,8 @@
 
 import os.path
 
+import pandas as pd
+
 from RSDatacube.RSdc import *
 
 import seaborn as sns
@@ -2394,7 +2396,9 @@ def fig15_func():
     plt.rc('axes', linewidth=2)
 
     data = 'G:\\A_Landsat_Floodplain_veg\\GEDI_L4A\\Result\\floodplain_2020_high_quality_all_Phemetrics.csv'
-    data_pd = pd.read_csv(data)
+    data_pd1 = pd.read_csv(data)
+    data_pd2 = pd.read_csv('G:\A_Landsat_Floodplain_veg\GEDI_L4A\Result\GEDI_link_RS\\floodplain_2020_high_quality\\floodplain_2020_high_quality_fvc_2023.tif.csv')
+    data_pd = pd.merge(data_pd1, data_pd2, how='inner')
     data_pd.drop(data_pd[data_pd['PFT class'] == 9].index, inplace=True)
     data_pd.drop(data_pd[data_pd['PFT class'] == 1].index, inplace=True)
     data_pd.drop(data_pd[data_pd['PFT class'] == 2].index, inplace=True)
@@ -2978,8 +2982,8 @@ def fig_wl_func():
         plt.close()
 
 
-# fig15_func()
-fig11nc3_func()
+fig15_func()
+# fig11nc3_func()
 # fig11nc_func()
 # fig_wl_func()
 # fig12_nc_func()

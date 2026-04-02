@@ -5,13 +5,17 @@ from River_GIS.River_GIS import *
 
 if __name__ == '__main__':
 
+
+    wl1 = HydroStationDS()
+    wl1.from_original_csvs('G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level', 'G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level\对应表.csv')
+    wl1.to_std_csvs('G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level\standard_csv')
     # # Water level import
-    # wl1 = HydroStationDS()
-    # wl1.import_from_standard_files('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\', 'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
-    # wl1.annual_runoff_sediment('宜昌', 'G:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.3\\')
-    # wl1.annual_runoff_sediment('枝城', 'G:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.3\\')
-    # wl1.annual_runoff_sediment('螺山', 'G:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.3\\')
-    # wl1.annual_runoff_sediment('汉口', 'G:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.3\\')
+    wl1 = HydroStationDS()
+    wl1.from_std_csvs('G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level\standard_csv')
+    wl1.print_annual_runoff_sediment('宜昌', 'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.1\\')
+    wl1.print_annual_runoff_sediment('枝城', 'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.1\\')
+    wl1.print_annual_runoff_sediment('螺山', 'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.1\\')
+    wl1.print_annual_runoff_sediment('汉口', 'D:\A_PhD_Main_paper\Chap.2\Figure\Fig.2.1\\')
     # wl1.to_csvs()
     # wl1.to_FlwBound41DHM('G:\\A_1Dflow_sed\\Hydrodynamic_model\\para\\MYR_FlwBound.csv', [20190101, 20191231], '宜昌', '九江', 'Z-T')
     #
