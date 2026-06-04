@@ -5,6 +5,13 @@ from Crawler.crawler_weatherdata import Qweather_dataset
 
 if __name__ == '__main__':
 
+    for year in range(1995, 2024):
+        year = int(year)
+        hc = HydroDC()
+        hc.from_hydromatrix(f'G:\A_Floodplain_topography\Water_level_python\hydrodatacube_v1\\{str(year)}\\')
+        hc.animate_waterlevel_timeseries(f'G:\A_1Dflow_sed\OC\\{str(year)}.gif')
+
+
     # # Water level import
     wl1 = HydroStationDS()
     wl1.from_std_csvs('G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level\standard_csv\\')
@@ -112,6 +119,7 @@ if __name__ == '__main__':
         year = int(year)
         hc = HydroDC()
         hc.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
+        hc.animate_waterlevel_timeseries('G:\A_1Dflow_sed\OC\\')
         hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_mid.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\predamwl_middamdem\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=True)
 
     # for year in range(1988, 2004):

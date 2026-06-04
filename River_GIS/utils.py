@@ -408,15 +408,21 @@ def dis2points_via_line(point1, point2, line_temp: LineString, line_distance=Non
         if point1_index is None:
             if (line_arr[_, 0] - point1_x) * (line_arr[_ + 1, 0] - point1_x) <= 0:
                 if (line_arr[_, 1] - point1_y) * (line_arr[_ + 1, 1] - point1_y) <= 0:
-                    point1_y_temp = line_arr[_, 1] + (line_arr[_ + 1, 1] - line_arr[_, 1]) * (point1_x - line_arr[_, 0]) / (line_arr[_ + 1, 0] - line_arr[_, 0])
-                    if point1_y_temp - point1_y < 0.1:
+                    if line_arr[_, 0] == line_arr[_ + 1, 0]:
                         point1_index = _
+                    else:
+                        point1_y_temp = line_arr[_, 1] + (line_arr[_ + 1, 1] - line_arr[_, 1]) * (point1_x - line_arr[_, 0]) / (line_arr[_ + 1, 0] - line_arr[_, 0])
+                        if point1_y_temp - point1_y < 0.1:
+                            point1_index = _
         if point2_index is None:
             if (line_arr[_, 0] - point2_x) * (line_arr[_ + 1, 0] - point2_x) <= 0:
                 if (line_arr[_, 1] - point2_y) * (line_arr[_ + 1, 1] - point2_y) <= 0:
-                    point2_y_temp = line_arr[_, 1] + (line_arr[_ + 1, 1] - line_arr[_, 1]) * (point2_x - line_arr[_, 0]) / (line_arr[_ + 1, 0] - line_arr[_, 0])
-                    if point2_y_temp - point2_y < 0.1:
+                    if line_arr[_, 0] == line_arr[_ + 1, 0]:
                         point2_index = _
+                    else:
+                        point2_y_temp = line_arr[_, 1] + (line_arr[_ + 1, 1] - line_arr[_, 1]) * (point2_x - line_arr[_, 0]) / (line_arr[_ + 1, 0] - line_arr[_, 0])
+                        if point2_y_temp - point2_y < 0.1:
+                            point2_index = _
         if point1_index is not None and point2_index is not None:
             break
     # Solution 2
@@ -677,7 +683,7 @@ def hydro_wl_interpolation(df: pd.DataFrame, thal, year_range, geotransform: lis
                                 wl_pos = wl_start + (wl_end - wl_start) * dis_to_start_station / (dis_to_start_station + dis_to_end_station)
 
                         for year_temp in year_unique_list:
-                            yearly_wl[str(year) + '_wl'].append([year_temp, start_cs, end_cs, dis_to_start_station, dis_to_end_station])
+                            yearly_wl[str(year_temp) + '_wl'].append([year_temp, start_cs, end_cs, dis_to_start_station, dis_to_end_station])
                 else:
                     raise Exception('Code Error')
                 pbar.update()

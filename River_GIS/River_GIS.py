@@ -26,6 +26,10 @@ import River_GIS
 import ast
 from scipy.interpolate import make_interp_spline
 import math
+import imageio.v2 as imageio
+import shutil
+from matplotlib import animation
+
 
 plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
 topts = gdal.TranslateOptions(creationOptions=['COMPRESS=LZW', 'PREDICTOR=2'])
@@ -459,7 +463,7 @@ class HydroStationDS (object):
             else:
                 arr_pd_list.append(arr_pd[indi_size * i_size: -1])
 
-        with concurrent.futures.ProcessPoolExecutor() as exe:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=cpu_amount) as exe:
             res = exe.map(hydro_wl_interpolation, arr_pd_list, repeat(thalweg_temp), repeat(year_list),
                           repeat([ul_x, x_res, ul_y, y_res]), repeat(cs_list), repeat(hydro_pos))
         res = list(res)
@@ -1108,6 +1112,147 @@ class HydroDC(object):
 
     def remove_depression(self):
         pass
+
+    def animate_waterlevel_timeseries(self, output_path: str, fps: int = 6, cmap: str = 'turbo',
+                                      date_fmt: str = '%Y%m%d',
+                                      vmin: float = None, vmax: float = None, dpi: int = 200, image_height: int = 1000,
+                                      keep_frame_png: bool = False, frame_png_folder: str = None):
+        """
+        Create a 2D HydroDC animation, where color represents water level.
+
+        Parameters
+        ----------
+        output_path : str
+            Output animation file path. Supported suffix: .gif / .mp4.
+        fps : int
+            Frames per second for animation.
+        cmap : str
+            Matplotlib colormap name.
+        date_fmt : str
+            Datetime format used to parse layer names if possible.
+        vmin, vmax : float
+            Fixed color range. If not provided, use global min/max across all frames.
+        dpi : int
+            Output dpi.
+        image_height : int
+            Height (in pixels) for each exported frame png. Width keeps aspect ratio.
+        keep_frame_png : bool
+            Keep intermediate daily png files or delete after merge.
+        frame_png_folder : str
+            Optional folder to save intermediate frame png files.
+
+        Returns
+        -------
+        str
+            Output file path.
+        """
+
+        if self.hydrodatacube is None:
+            raise Exception('Please import HydroDC before generating animation.')
+
+        if output_path is None:
+            raise ValueError('Please input output_path for the animation file.')
+
+        output_folder = os.path.dirname(output_path)
+        if output_folder != '':
+            bf.create_folder(output_folder)
+
+        # Prepare frame names (do not expand all sparse layers to dense arrays in memory)
+        if self.sparse_factor:
+            time_labels = self.hydrodatacube.SM_namelist
+            frame_getter = lambda idx: self.hydrodatacube.SM_group[time_labels[idx]].toarray()
+            frame_shape = self.hydrodatacube.shape[:2]
+        else:
+            time_labels = list(range(self.hydrodatacube.shape[2]))
+            frame_getter = lambda idx: self.hydrodatacube[:, :, idx]
+            frame_shape = self.hydrodatacube.shape[:2]
+
+        if len(time_labels) == 0:
+            raise Exception('HydroDC contains no frame for animation.')
+
+        parsed_labels = []
+        for _ in time_labels:
+            try:
+                parsed_labels.append(pd.to_datetime(str(_), format=date_fmt).strftime('%Y-%m-%d'))
+            except Exception:
+                parsed_labels.append(str(_))
+
+        if vmin is None or vmax is None:
+            # Compute global range without densifying all sparse frames at once
+            global_min, global_max = np.inf, -np.inf
+            total_size = frame_shape[0] * frame_shape[1]
+            for _ in time_labels:
+                if self.sparse_factor:
+                    sm_temp = self.hydrodatacube.SM_group[_]
+                    if sm_temp.nnz == 0:
+                        min_temp, max_temp = 0.0, 0.0
+                    else:
+                        min_temp = float(sm_temp.data.min())
+                        max_temp = float(sm_temp.data.max())
+                        if sm_temp.nnz < total_size:
+                            min_temp = min(min_temp, 0.0)
+                            max_temp = max(max_temp, 0.0)
+                else:
+                    arr_temp = self.hydrodatacube[:, :, _]
+                    min_temp = float(np.nanmin(arr_temp))
+                    max_temp = float(np.nanmax(arr_temp))
+                global_min = min(global_min, min_temp)
+                global_max = max(global_max, max_temp)
+            if vmin is None:
+                vmin = global_min
+            if vmax is None:
+                vmax = global_max
+        if np.isclose(vmin, vmax):
+            vmax = vmin + 1e-6
+
+        # Generate daily png frames first, then merge
+        if frame_png_folder is None:
+            output_stem = os.path.splitext(os.path.basename(output_path))[0]
+            frame_png_folder = os.path.join(output_folder if output_folder != '' else '.', f'_frames_{output_stem}')
+        bf.create_folder(frame_png_folder)
+
+        def _downsample_by_height(arr_temp: np.ndarray):
+            if image_height is None or image_height <= 0:
+                return arr_temp
+            if arr_temp.shape[0] <= image_height:
+                return arr_temp
+            step = int(np.ceil(arr_temp.shape[0] / image_height))
+            return arr_temp[::step, ::step]
+
+        frame_path_list = []
+        for frame_index in range(len(time_labels)):
+            arr_temp = frame_getter(frame_index)
+            arr_temp = _downsample_by_height(arr_temp)
+
+            fig_h = image_height / dpi if image_height is not None and image_height > 0 else 6
+            fig_w = fig_h * arr_temp.shape[1] / max(1, arr_temp.shape[0])
+            fig_temp, ax_temp = plt.subplots(figsize=(fig_w, fig_h), constrained_layout=True)
+            im = ax_temp.imshow(arr_temp, cmap=cmap, vmin=vmin, vmax=vmax)
+            cbar = fig_temp.colorbar(im, ax=ax_temp)
+            cbar.set_label('Water level (m)')
+            ax_temp.set_title(f'HydroDC water level: {parsed_labels[frame_index]}')
+            ax_temp.set_axis_off()
+
+            frame_path = os.path.join(frame_png_folder, f'frame_{frame_index:05d}.png')
+            fig_temp.savefig(frame_path, dpi=dpi)
+            plt.close(fig_temp)
+            frame_path_list.append(frame_path)
+
+        if output_path.lower().endswith('.gif'):
+            with imageio.get_writer(output_path, mode='I', fps=fps) as writer:
+                for frame_path in frame_path_list:
+                    writer.append_data(imageio.imread(frame_path))
+        elif output_path.lower().endswith('.mp4'):
+            with imageio.get_writer(output_path, fps=fps, codec='libx264') as writer:
+                for frame_path in frame_path_list:
+                    writer.append_data(imageio.imread(frame_path))
+        else:
+            raise ValueError('output_path should end with .gif or .mp4')
+
+        if not keep_frame_png:
+            shutil.rmtree(frame_png_folder, ignore_errors=True)
+
+        return output_path
 
 
 class Inunfac_dc(object):

@@ -24,7 +24,7 @@ from .built_in_index import built_in_index
 from lxml import etree
 from NDsm import NDSparseMatrix
 import json
-
+import Sentinel2_toolbox
 
 global topts
 topts = gdal.TranslateOptions(creationOptions=['COMPRESS=LZW', 'PREDICTOR=2'])
@@ -444,7 +444,7 @@ class Sentinel2_ds(object):
 
         i = range(self.S2_metadata.shape[0])
         # mp process
-        with concurrent.futures.ProcessPoolExecutor(max_workers=chunk_size) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=int(chunk_size * Sentinel2_toolbox.configuration['multiprocess_ratio'])) as executor:
             results = executor.map(self.subset_tiffiles, repeat(args[0]), i, repeat(False), repeat(kwargs))
 
         results = list(results)
@@ -827,9 +827,12 @@ class Sentinel2_ds(object):
                                     else:
                                         print('consistency issuses')
                                         return
+                                if self._vi_clip_factor:
+                                    gdal.Unlink('/vsimem/' + file_name + 'temp.TIF')
                                 gdal.Unlink('/vsimem/' + file_name + '.TIF')
 
                             except:
+                                print(traceback.format_exc())
                                 print(f'The {index} of {str(sensing_date)}_{str(tile_num)} is not valid')
                                 return [index, tiffile_serial_num, sensing_date, tile_num]
 
@@ -1273,7 +1276,7 @@ class Sentinel2_ds(object):
             chunk_size = os.cpu_count()
 
         # MP process
-        with concurrent.futures.ProcessPoolExecutor(max_workers=chunk_size) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=int(chunk_size * Sentinel2_toolbox.configuration['multiprocess_ratio'])) as executor:
             executor.map(self._mosaic2seqtif, index_list, repeat(kwargs))
     
     def _mosaic2seqtif(self, index, *args, **kwargs):
@@ -1462,7 +1465,7 @@ class Sentinel2_ds(object):
             chunk_size = os.cpu_count()
 
         # mp process
-        with concurrent.futures.ProcessPoolExecutor(max_workers=chunk_size) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=int(chunk_size * Sentinel2_toolbox.configuration['multiprocess_ratio'])) as executor:
             executor.map(self._ds2sdc, index_list, repeat(kwargs))
 
         self._sdc_consistency_check(index_list, **kwargs)

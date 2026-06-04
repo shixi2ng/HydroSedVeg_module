@@ -1410,20 +1410,20 @@ def ep_fig2_func():
     plt.rc('font', size=22)
     plt.rc('axes', linewidth=2)
 
-    data = 'D:\A_PhD_Main_paper\Chap.2\Figure\\2.4.2\\3\\data_hankou.xlsx'
+    data = 'D:\\B_papers_patents\\RAC_三峡工程运用影响下长江中游洲滩植物演替动态与规律研究\\Fig&Tab\\Fig3\\data_hankou.xlsx'
     data_pd = pd.read_excel(data)
-    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(12, 16), constrained_layout=True)
+    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(10, 16), constrained_layout=True)
     ax[0].plot(data_pd['DOY'], data_pd['total biomas site1'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
     ax[0].scatter(data_pd['DOY'], data_pd['total biomas site1'], zorder=4, s=13**2, marker='s', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
     ax[0].errorbar(data_pd['DOY'], data_pd['total biomas site1'], yerr=None)
-    ax[0].plot(data_pd['DOY'], data_pd['leaf biomass (site1)'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
-    ax[0].scatter(data_pd['DOY'], data_pd['leaf biomass (site1)'], zorder=4, s=14**2, marker='^', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
+    # ax[0].plot(data_pd['DOY'], data_pd['leaf biomass (site1)'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
+    # ax[0].scatter(data_pd['DOY'], data_pd['leaf biomass (site1)'], zorder=4, s=14**2, marker='^', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
     ax[0].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['total biomas site1'], zorder=1, alpha=0.5, fc=(54/256, 92/256, 141/256))
-    ax[0].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['leaf biomass (site1)'], zorder=2, alpha=0.5, fc=(196/256, 78/256, 82/256))
+    # ax[0].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['leaf biomass (site1)'], zorder=2, alpha=0.5, fc=(196/256, 78/256, 82/256))
     ax[0].set_xticks([75, 135, 195, 255, 315])
     ax[0].grid(axis='y', color=(240 / 256, 240 / 256, 240 / 256))
     ax[0].set_xticklabels(['3', '5', '7', '9', '11'], fontname='Times New Roman', fontsize=26)
-    ax[0].set_xlabel('Date', fontname='Times New Roman', fontsize=34, fontweight='bold')
+    # ax[0].set_xlabel('Date', fontname='Times New Roman', fontsize=34, fontweight='bold')
     ax[0].set_ylabel('Biomass per plant/g', fontname='Times New Roman', fontsize=34, fontweight='bold')
     ax[0].set_xlim([60, 345])
     ax[0].set_ylim([0, 25])
@@ -1431,10 +1431,10 @@ def ep_fig2_func():
     ax[1].plot(data_pd['DOY'], data_pd['total biomas site2'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
     ax[1].scatter(data_pd['DOY'], data_pd['total biomas site2'], zorder=4, s=13**2, marker='s', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
     ax[1].errorbar(data_pd['DOY'], data_pd['total biomas site2'], yerr=None)
-    ax[1].plot(data_pd['DOY'], data_pd['leaf biomass (site2)'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
-    ax[1].scatter(data_pd['DOY'], data_pd['leaf biomass (site2)'], zorder=4, s=14**2, marker='^', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
+    # ax[1].plot(data_pd['DOY'], data_pd['leaf biomass (site2)'], lw=3, ls='--', c=(25/256, 25/256, 25/256), zorder=3)
+    # ax[1].scatter(data_pd['DOY'], data_pd['leaf biomass (site2)'], zorder=4, s=14**2, marker='^', edgecolors=(0/256, 0/256, 0/256), facecolor=(1, 1, 1), alpha=1, linewidths=2)
     ax[1].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['total biomas site2'], zorder=1, alpha=0.5, fc=(54/256, 92/256, 141/256))
-    ax[1].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['leaf biomass (site2)'], zorder=2, alpha=0.5, fc=(196/256, 78/256, 82/256))
+    # ax[1].fill_between(data_pd['DOY'], [0, 0, 0, 0, 0, 0, 0, 0,0], data_pd['leaf biomass (site2)'], zorder=2, alpha=0.5, fc=(196/256, 78/256, 82/256))
     ax[1].set_xticks([75, 135, 195, 255, 315])
     ax[1].grid(axis='y', color=(240 / 256, 240 / 256, 240 / 256))
     ax[1].set_xticklabels(['3', '5', '7', '9', '11'], fontname='Times New Roman', fontsize=26)
@@ -1442,7 +1442,7 @@ def ep_fig2_func():
     ax[1].set_ylabel('Biomass per plant/g', fontname='Times New Roman', fontsize=34, fontweight='bold')
     ax[1].set_xlim([60, 345])
     ax[1].set_ylim([0, 70])
-    plt.savefig(f'D:\A_PhD_Main_paper\Chap.2\Figure\\2.4.2\\3\\Fig4.png', dpi=300)
+    plt.savefig(f'D:\\B_papers_patents\\RAC_三峡工程运用影响下长江中游洲滩植物演替动态与规律研究\\Fig&Tab\\Fig3\\Fig3.png', dpi=300)
 
 def veg_area():
     ds1 = gdal.Open(r'G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\Phemetric_tif\2004\\2004_MAVI.TIF')
@@ -1534,4 +1534,4 @@ def inund_detection():
         df_nn_pre.to_csv('D:\A_PhD_Main_paper\Chap.2\Table\Table.2.6\\nn_pre.csv')
 
 if __name__ == '__main__':
-    fig2_26()
+    ep_fig2_func()

@@ -3,6 +3,7 @@ from collections import defaultdict, Counter
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import tight_layout
 from osgeo import gdal
 import basic_function as bf
 import ruptures as rpt
@@ -159,6 +160,104 @@ def _plot_stacked(pivot_df, reach_name, style_map, class_order, output_folder):
     plt.close(fig)
     print(f"[OK] 已保存图像：{save_img}")
 
+def _plot_stacked_on_ax(ax, pivot_df, reach_name, style_map, class_order, show_legend=False):
+    years = pivot_df['year'].tolist()
+    x = np.arange(len(years))
+    bottom = np.zeros(len(pivot_df), dtype=float)
+
+    class_names = {
+        1: '草本植物群落',
+        2: '挺水植物群落',
+        3: '木本植物群落',
+        4: '农业用地',
+        5: '裸露洲滩',
+        6: '建设用地',
+    }
+
+    for cls in class_order:
+        cand = [f"pct_{cls}", cls, str(cls)]
+        col = next((c for c in cand if c in pivot_df.columns), None)
+        if cls == 5:
+            vals = pivot_df[col].values + pivot_df.get('pct_0', pd.Series(0,
+                                                                          index=pivot_df.index)).values if col is not None else np.zeros(
+                len(pivot_df))
+        else:
+            vals = pivot_df[col].values if col is not None else np.zeros(len(pivot_df))
+
+        st = style_map.get(cls, dict(face='#DDDDDD', edge='#000', hatch=None))
+        ax.bar(
+            x, vals, bottom=bottom, label=class_names.get(cls, str(cls)),
+            edgecolor=st['edge'], linewidth=0.8, facecolor=st['face'],
+            hatch=(st['hatch'] or ''), width=0.9, alpha=0.8
+        )
+        bottom += vals
+
+    ax.plot([14.5, 14.5], [0, 100], lw=1.2, c='black')
+    ax.plot([24.5, 24.5], [0, 100], lw=1.2, c='black')
+    ax.set_xticks([0, 5, 10, 15, 20, 25, 30, 35])
+    ax.set_xticklabels(['1988', '1993', '1998', '2003', '2008', '2013', '2018', '2023'], fontsize=12)
+    ax.set_ylim(0, 100)
+    ax.set_xlim(-0.5, len(x) - 0.5)
+    # ax.set_title(reach_name, fontsize=12)
+    ax.grid(axis='y', linestyle='--', alpha=0.35)
+
+    if show_legend:
+        leg = ax.legend(
+            title='土地覆盖类型',
+            loc='lower right',
+            bbox_to_anchor=(0.95, 0.02),
+            frameon=True,
+            facecolor='white',
+            framealpha=1.0,
+            edgecolor='black',
+            borderaxespad=0.4,
+            ncol=3,
+            columnspacing=0.8,
+            handlelength=1.8,
+            handletextpad=0.6,
+            fontsize=12,
+            title_fontsize=12,
+        )
+        leg.get_frame().set_linewidth(1.0)
+
+    for s in ax.spines.values():
+        s.set_linewidth(1.0)
+
+def _plot_stacked_combined(results, style_map, class_order, output_folder):
+    fig = plt.figure(figsize=(15, 8), dpi=300, )
+    gs = fig.add_gridspec(3, 2, hspace=0.15, wspace=0.12)
+
+    ax_top = fig.add_subplot(gs[0, :])  # 第一行：长江中游（跨两列）
+    ax_row2_l = fig.add_subplot(gs[1, 0])  # 第二行左：宜枝
+    ax_row2_r = fig.add_subplot(gs[1, 1])  # 第二行右：城汉
+    ax_row3_l = fig.add_subplot(gs[2, 0])  # 第三行左：荆江
+    ax_row3_r = fig.add_subplot(gs[2, 1])  # 第三行右：汉湖
+
+    panel_order = [
+        ("长江中游", ax_top, True),
+        ("宜枝河段", ax_row2_l, False),
+        ("城汉河段", ax_row2_r, False),
+        ("荆江河段", ax_row3_l, False),
+        ("汉湖河段", ax_row3_r, False),
+    ]
+
+    for reach_name, ax, show_legend in panel_order:
+        if reach_name not in results:
+            ax.set_axis_off()
+            # ax.set_title(f"{reach_name}（无数据）", fontsize=12)
+            continue
+        _plot_stacked_on_ax(ax, results[reach_name], reach_name, style_map, class_order, show_legend=show_legend)
+
+    ax_top.set_ylabel('面积占比/%')
+    ax_row2_l.set_ylabel('面积占比/%')
+    ax_row3_l.set_ylabel('面积占比/%')
+    ax_row3_l.set_xlabel('年份')
+    ax_row3_r.set_xlabel('年份')
+
+    save_img = os.path.join(output_folder, 'class_proportion_stacked_combined.png')
+    plt.savefig(save_img, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+    print(f"[OK] 已保存组合图像：{save_img}")
 
     # 年份解析
 def extract_year(path: str) -> int:
@@ -177,7 +276,7 @@ def fig3_1_segments(input_folder, output_folder,
     # 字体
     plt.rcParams['font.family'] = ['Times New Roman', 'SimSun']
     plt.rcParams['axes.unicode_minus'] = False
-    plt.rc('font', size=14)
+    plt.rc('font', size=13)
     plt.rc('axes', linewidth=1)
 
     # 河段
@@ -222,8 +321,9 @@ def fig3_1_segments(input_folder, output_folder,
         print("[INFO] 汇总CSV已齐全，跳过源CSV读取，直接出图。")
         for reach_name, _ in reaches:
             pivot = pd.read_csv(reach_csv_path[reach_name])
-            _plot_stacked(pivot, reach_name, style_map, class_order, output_folder)
+            # _plot_stacked(pivot, reach_name, style_map, class_order, output_folder)
             results[reach_name] = pivot
+        _plot_stacked_combined(results, style_map, class_order, output_folder)
         return results
 
     # —— 只有在存在缺失时，才做一次性扫描统计（不会逐河段反复读文件） ——
@@ -360,9 +460,9 @@ def fig3_1_segments(input_folder, output_folder,
 
         # 画图始终从汇总CSV读取（保证统一入口）
         pivot_plot = pd.read_csv(target_csv)
-        _plot_stacked(pivot_plot, reach_name, style_map, class_order, output_folder)
+        # _plot_stacked(pivot_plot, reach_name, style_map, class_order, output_folder)
         results[reach_name] = pivot_plot
-
+    _plot_stacked_combined(results, style_map, class_order, output_folder)
     return results
 
 def fig32_sup(output_folder):
@@ -413,7 +513,7 @@ def fig32_sup(output_folder):
     id_series = [np.asarray(arr, dtype=float) for arr in series_npz['series']]
     years = series_npz['years'].astype(int)
 
-    fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+    fig, ax = plt.subplots(figsize=(10, 2.5), dpi=300)
     # ax.boxplot(
     #     id_series,
     #     positions=years,
@@ -451,15 +551,17 @@ def fig32_sup(output_folder):
     ax.plot([2012.55, 2012.55], [-100, 250], linewidth=1.3, color='black')
 
     xt = sorted([_ for _ in range(1988, 2021)])
-    ax.set_xticks(xt)
-    ax.set_xticklabels(xt, rotation=45, ha='right', fontsize=9)
+    ax.set_xticks([1988, 1992, 1996, 2000, 2004, 2008, 2012, 2016, 2020])
+    ax.set_xticklabels(['1988', '1992', '1996', '2000', '2004', '2008', '2012', '2016', '2020'], fontsize=11)
+    ax.set_yticks([0, 36.5, 73, 109.5, 146, 181.5, 219])
+    ax.set_yticklabels(['0%', '10%', '20%', '30%', '40%', '50%', '60%', ], fontsize=11)
 
     ax.grid(axis="y", linestyle="--", alpha=0.4, zorder=0)
     for s in ax.spines.values():
         s.set_linewidth(2.0)
 
-    ax.set_xlabel('年份')
-    ax.set_ylabel('淹没历时/d')
+    ax.set_xlabel('年份', fontsize=12)
+    ax.set_ylabel('淹没频率', fontsize=12)
     ax.legend(
         loc="lower right",
         frameon=True,
@@ -535,18 +637,18 @@ def fig32(output_folder,
 
     ratio_specs = [
         ("ratio_123_5", "R1 (1+2+3 与 5 之比)",
-         lambda y1,y2,y3,y5,y0: np.where(y5 > 0, (y1+y2+y3 - y5 - y0) / (y1+y2+y3 + y5 + y0), np.nan)),
+         lambda y1,y2,y3,y5,y0: np.where(y5 > 0, (y1+y2+y3 ) / (y1+y2+y3 + y5 + y0), np.nan)),
         ("ratio_1_minus_5_over_1_plus_5", "R2 (1 与 5 的差比和)",
-         lambda y1,y2,y3,y5,y0: np.where((y1+y5) > 0, (y1 - y5 - y0) / (y1 + y5 + y0), np.nan)),
+         lambda y1,y2,y3,y5,y0: np.where((y1+y5) > 0, (y1) / (y1 + y5 + y0), np.nan)),
         ("ratio_2_minus_5_over_2_plus_5", "R3 (2 与 5 的差比和)",
-         lambda y1,y2,y3,y5,y0: np.where((y2+y5) > 0, (y2 - y5 - y0) / (y2 + y5 + y0), np.nan)),
+         lambda y1,y2,y3,y5,y0: np.where((y2+y5) > 0, (y2 ) / (y2 + y5 + y0), np.nan)),
         ("ratio_3_minus_5_over_3_plus_5", "R4 (3 与 5 的差比和)",
-         lambda y1,y2,y3,y5,y0: np.where((y3+y5) > 0, (y3 - y5 - y0) / (y3 + y5 + y0), np.nan)),
+         lambda y1,y2,y3,y5,y0: np.where((y3+y5) > 0, (y3) / (y3 + y5 + y0), np.nan)),
     ]
 
     # None=不开断轴；有值={"ranges": ((yLmin,yLmax),(yHmin,yHmax)), "slash_len": ...}
     y_break_cfg = {
-        "ratio_123_5": {"ranges": ((-0.12, 0.01), (0.2, 0.7)), "slash_len": 0.006},
+        "ratio_123_5": {"ranges": ((0.4, 0.51), (0.6, 0.9)), "slash_len": 0.006},
         "ratio_1_minus_5_over_1_plus_5": None,
         "ratio_2_minus_5_over_2_plus_5": {"ranges": ((-0.8, -0.6), (-0.2, 0.45)), "slash_len": 0.006},
         "ratio_3_minus_5_over_3_plus_5": None,
@@ -558,14 +660,14 @@ def fig32(output_folder,
         cfg = y_break_cfg.get(key)
 
         if cfg is None:
-            fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+            fig, ax = plt.subplots(figsize=(10, 2.5), dpi=300)
             axes_to_draw = [ax]
             legend_ax = ax
         else:
             (y_low_min, y_low_max), (y_high_min, y_high_max) = cfg["ranges"]
             low_len  = max(1e-9, float(y_low_max - y_low_min))
             high_len = max(1e-9, float(y_high_max - y_high_min))
-            fig = plt.figure(figsize=(12, 3), dpi=300)
+            fig = plt.figure(figsize=(10, 2.5), dpi=300)
             gs = fig.add_gridspec(2, 1, height_ratios=[high_len, low_len])
             ax_high = fig.add_subplot(gs[0])
             ax_low  = fig.add_subplot(gs[1], sharex=ax_high)
@@ -675,8 +777,8 @@ def fig32(output_folder,
             axes_to_draw[-1].set_xlim(x_min - 0.5, x_max + 0.5)
         if all_years:
             xt = sorted(all_years)
-            axes_to_draw[-1].set_xticks(xt)
-            axes_to_draw[-1].set_xticklabels(xt, rotation=45, ha='right', fontsize=9)
+            axes_to_draw[-1].set_xticks([1988, 1993, 1998, 2003, 2008, 2013, 2018, 2023])
+            axes_to_draw[-1].set_xticklabels(['1988', '1993', '1998', '2003', '2008', '2013', '2018', '2023'], fontsize=11)
 
         if cfg is not None:
             slash_len = cfg.get("slash_len", 0.006)
@@ -697,7 +799,7 @@ def fig32(output_folder,
                 for i, t in enumerate(ticks_high):
                     labels_high.append("" if i == 0 else f"{t:g}")
                 ax_high.set_yticks(ticks_high)
-                ax_high.set_yticklabels(labels_high)
+                ax_high.set_yticklabels(labels_high, fontsize=11)
 
             d = float(slash_len)
             kw = dict(color='k', clip_on=False, linewidth=1)
@@ -707,15 +809,15 @@ def fig32(output_folder,
             ax_low.plot((1 - d, 1 + d), (1 - d, 1 + d), transform=ax_low.transAxes, **kw)
 
             fig.subplots_adjust(hspace=0.02)
-            ax_high.set_ylabel("NDVCI")
-            axes_to_draw[-1].set_xlabel("年份")
+            ax_high.set_ylabel("", fontsize=12)
+            axes_to_draw[-1].set_xlabel("年份", fontsize=12)
         else:
             if np.isfinite(y_global_min) and np.isfinite(y_global_max):
                 span = y_global_max - y_global_min
                 pad = 0.1 * (span if span > 0 else 1.0)
                 axes_to_draw[0].set_ylim(y_global_min - pad, y_global_max + pad)
-            axes_to_draw[0].set_ylabel("NDVCI")
-            axes_to_draw[0].set_xlabel("年份")
+            axes_to_draw[0].set_ylabel("", fontsize=12)
+            axes_to_draw[0].set_xlabel("年份", fontsize=12)
 
         for ax in axes_to_draw:
             ax.grid(axis="y", linestyle="--", alpha=0.4)
@@ -884,14 +986,14 @@ def fig33(output_folder,
 
         # ========= 建图：单轴 or 双轴（broken） =========
         if cfg is None:
-            fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
+            fig, ax = plt.subplots(figsize=(10, 2.5), dpi=300)
             axes_to_draw = [ax]
             legend_ax = ax
         else:
             (y_low_min, y_low_max), (y_high_min, y_high_max) = cfg["ranges"]
             low_len = max(1e-9, float(y_low_max - y_low_min))
             high_len = max(1e-9, float(y_high_max - y_high_min))
-            fig = plt.figure(figsize=(12, 3), dpi=300)
+            fig = plt.figure(figsize=(10, 2.5), dpi=300)
             gs = fig.add_gridspec(2, 1, height_ratios=[high_len, low_len])  # [上,下]
             ax_high = fig.add_subplot(gs[0])
             ax_low = fig.add_subplot(gs[1], sharex=ax_high)
@@ -1023,16 +1125,8 @@ def fig33(output_folder,
         if x_min < x_max:
             axes_to_draw[-1].set_xlim(x_min - 0.5, x_max + 0.5)
         if all_years:
-            xt = list(range(year_min, year_max + 1))  # 强制完整年份
-            locator = mtick.FixedLocator(xt)
-            formatter = mtick.FixedFormatter([str(x) for x in xt])
-            axes_to_draw[-1].xaxis.set_major_locator(locator)
-            axes_to_draw[-1].xaxis.set_major_formatter(formatter)
-            axes_to_draw[-1].tick_params(axis='x', which='both',
-                                         bottom=True, labelbottom=True, labelsize=10)
-            for lab in axes_to_draw[-1].get_xticklabels():
-                lab.set_rotation(45)
-                lab.set_ha('right')
+            axes_to_draw[-1].set_xticks([1988, 1993, 1998, 2003, 2008, 2013, 2018, 2023])
+            axes_to_draw[-1].set_xticklabels(['1988', '1993', '1998', '2003', '2008', '2013', '2018', '2023'], fontsize=11)
 
         # ========= Y 轴 & 断轴视觉 =========
         if cfg is not None:
@@ -1065,17 +1159,16 @@ def fig33(output_folder,
             ax_low.plot((1 - d, 1 + d), (1 - d, 1 + d), transform=ax_low.transAxes, **kw)
 
             fig.subplots_adjust(hspace=0.02)
-
-            ax_high.set_ylabel("NDAEI")
-            axes_to_draw[-1].set_xlabel("年份")
+            ax_high.set_ylabel("NDAEI", fontsize=12)
+            axes_to_draw[-1].set_xlabel("年份", fontsize=12)
         else:
             # 单轴自动 y 限（留 10% padding）
             if np.isfinite(y_global_min) and np.isfinite(y_global_max):
                 span = y_global_max - y_global_min
                 pad = 0.1 * (span if span > 0 else 1.0)
                 axes_to_draw[0].set_ylim(y_global_min - pad, y_global_max + pad)
-            axes_to_draw[0].set_ylabel("NDAEI")
-            axes_to_draw[0].set_xlabel("年份")
+            axes_to_draw[0].set_ylabel("NDAEI", fontsize=12)
+            axes_to_draw[0].set_xlabel("年份", fontsize=12)
 
         # ========= 网格 + 外框 =========
         for ax in axes_to_draw:
@@ -1102,9 +1195,9 @@ def fig33(output_folder,
                 columnspacing=1.2,
                 handlelength=1.8,
                 handletextpad=0.6,
-                fontsize=14,
+                fontsize=12,
                 title_fontsize=10,
-                zorder=10
+
             )
             leg.get_frame().set_linewidth(1.2)
 
@@ -1323,8 +1416,8 @@ def fig38():
     succ_order = {0: 0, 1: 1, 2: 2, 3: 3}
 
     # 三类颜色（rgba，已经带上透明度）
-    forward_rgba = 'rgba(0, 68, 27, 0.6)'  # 深绿 + 60% 不透明
-    backward_rgba = 'rgba(77, 77, 77, 0.6)'  # 深灰 + 60% 不透明
+    forward_rgba = 'rgba(188, 0, 0, 0.6)'  # 深绿 + 60% 不透明
+    backward_rgba = 'rgba(0, 0, 188, 0.6)'  # 深灰 + 60% 不透明
     neutral_rgba = 'rgba(176, 176, 176, 0.35)'  # 浅灰 + 更淡
 
     link_colors = []
@@ -1367,13 +1460,13 @@ def fig38():
         )
     )])
     fig.update_layout(font=dict(family="SimSun", size=20))
-    out_dir = r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.4'
+    out_dir = r'D:\B_papers_patents\RAC_三峡工程运用影响下长江中游洲滩植物演替动态与规律研究\Fig&Tab\Fig7'
     os.makedirs(out_dir, exist_ok=True)
     png_path = os.path.join(out_dir, 'Fig3_8_sankey.png')
 
     # 静态 PNG（需要：pip install -U kaleido）
     try:
-        fig.write_image(png_path, width=1600, height=1000, scale=2)
+        fig.write_image(png_path, width=1600, height=800, scale=2)
     except Exception as e:
         print("写 PNG 失败（可能未安装 kaleido），错误信息：", e)
 
@@ -2603,8 +2696,8 @@ def fig3113():
         for path in csv_list:
             df = pd.read_csv(path)
             df = df.dropna()
-            df = df[df['year'] > 2003]
-            df = df[df['year'] < 2014]
+            df = df[df['year'] < 2002]
+            df = df[df['year'] > 1995]
             # for yr in yr_list:
             #     df = df[df['year'] != yr]
             if path == r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.11\link_indi\季节性水体__挺水植物群落.csv':
@@ -2931,7 +3024,7 @@ def fig312():
     }
 
     # ===== 新的统一输出文件夹 =====
-    base_out_folder = r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.12\Output'
+    base_out_folder = r'D:\A_PhD_Main_paper\Chap.3\Figure_\Fig.3.14'
     os.makedirs(base_out_folder, exist_ok=True)
 
     # ============= 大循环：Riv / Sho / Eme 三组 =================
@@ -3098,7 +3191,7 @@ def fig312():
             plt.savefig(os.path.join(base_out_folder, f'{__}_lognorm.png'), dpi=300)
             fig = None
 
-        fig, ax = plt.subplots(figsize=(6, 4), dpi=300)
+        fig, ax = plt.subplots(figsize=(6, 3), dpi=300)
 
         # 画箱线图（横轴 group，纵轴为指标值）
         bp = ax.boxplot(
@@ -3145,8 +3238,8 @@ def fig312():
             )
 
         # x 轴标签美化一下
-        plt.setp(ax.get_xticklabels(), rotation=20, ha='right')
-        ax.set_xlim([0, 900])
+        plt.setp(ax.get_xticklabels(), ha='right')
+        ax.set_xlim([0, 700])
         fig.tight_layout()
         out_path = os.path.join(base_out_folder, f"{name}_box_{ind}.png")
         fig.savefig(out_path, dpi=300)
@@ -3192,12 +3285,14 @@ def fig300():  # 1. CSV 列表
 
 
 if __name__ == '__main__':
-    fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure_\Fig.3.1')
-    # fig38()
-    # fig32_sup('D:\\A_PhD_Main_paper\\Chap.3\\Figure\\Fig.3.2\\')
-    # fig32('D:\\A_PhD_Main_paper\\Chap.3\\Figure\\Fig.3.2\\')
-    fig39()
+    # fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure_\Fig.3.1')
+    fig38()
+    # fig32_sup('D:\B_papers_patents\RAC_三峡工程运用影响下长江中游洲滩植物演替动态与规律研究\Fig&Tab\Fig6\\')
+    # fig32('D:\B_papers_patents\RAC_三峡工程运用影响下长江中游洲滩植物演替动态与规律研究\Fig&Tab\Fig6\\')
+    # fig39()
     # premap()
     # # fig32('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.2')
-    # fig33('D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.3')
-    # fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.1')
+    # fig3113()
+
+    # fig33('D:\A_PhD_Main_paper\Chap.3\Figure_\Fig.3.4')
+    # fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\B_papers_patents\RAC_三峡工程运用影响下长江中游洲滩植物演替动态与规律研究\Fig&Tab\Fig5\\')
