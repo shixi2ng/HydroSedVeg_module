@@ -3118,7 +3118,11 @@ class CSprofile(object):
                         gdal.Warp('/vsimem/temp1.TIF', ds_temp, )
                         ds_temp = gdal.Open('/vsimem/temp1.TIF')
                     [ul_x, x_res, xt, ul_y, yt, y_res] = ds_temp.GetGeoTransform()
-                    arr = ds_temp.GetRasterBand(1).ReadAsArray()
+                    dem_band = ds_temp.GetRasterBand(1)
+                    arr = dem_band.ReadAsArray().astype(np.float64)
+                    dem_nodata = dem_band.GetNoDataValue()
+                    if dem_nodata is not None:
+                        arr[arr == dem_nodata] = np.nan
                 except:
                     raise ValueError('The dem tif file is problematic!')
         else:
@@ -3135,8 +3139,22 @@ class CSprofile(object):
                     if int(srs_temp.split(':')[-1]) != int(self.crs.split(':')[-1]):
                         gdal.Warp('/vsimem/temp1.TIF', ds_temp, )
                         ds_temp = gdal.Open('/vsimem/temp1.TIF')
-                    [ul_x, x_res, xt, ul_y, yt, y_res] = ds_temp.GetGeoTransform()
-                    inun_freq_arr = ds_temp.GetRasterBand(1).ReadAsArray()
+                    [inun_ul_x, inun_x_res, inun_xt, inun_ul_y, inun_yt, inun_y_res] = ds_temp.GetGeoTransform()
+                    inun_freq_band = ds_temp.GetRasterBand(1)
+                    inun_freq_arr = inun_freq_band.ReadAsArray().astype(np.float64)
+                    inun_freq_nodata = inun_freq_band.GetNoDataValue()
+                    if inun_freq_nodata is not None:
+                        inun_freq_arr[inun_freq_arr == inun_freq_nodata] = np.nan
+                    finite_inun_freq = inun_freq_arr[np.isfinite(inun_freq_arr)]
+                    if finite_inun_freq.size == 0:
+                        raise ValueError('The inun_freq file contains no valid value!')
+                    if np.nanmax(finite_inun_freq) <= 1:
+                        inun_freq_min, inun_freq_max = 0.02, 0.98
+                    else:
+                        inun_freq_min, inun_freq_max = 2, 98
+                    invalid_inun_freq = ((inun_freq_arr < inun_freq_min) |
+                                         (inun_freq_arr > inun_freq_max))
+                    inun_freq_arr[invalid_inun_freq] = np.nan
                     inun_freq_factor = True
                 except:
                     raise ValueError('The inun_freq file is problematic!')
@@ -3144,9 +3162,12 @@ class CSprofile(object):
             inun_freq_factor=False
         else:
             raise TypeError('The inun_freq should be a TIF file')
+        else:
+            inun_freq_factor = False
 
         # Generate FIGURE para
-        insitu_dem_all, rs_dem_all, section_name_all, rs_dis_all, dem_diff_all = [], [], [], [], []
+        insitu_dem_all, rs_dem_all, nearest_dem_all, section_name_all, rs_dis_all = [], [], [], [], []
+        dem_diff_all, nearest_dem_diff_all, interpolation_error_rows = [], [], []
         inun_freq_all = [] if inun_freq_factor else None
         plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
         plt.rc('font', size=24)
@@ -3393,6 +3414,7 @@ class CSprofile(object):
                 fig_temp, ax_temp = plt.subplots(figsize=(11, 5), constrained_layout=True)
                 offset = dem_temp[0][0]
                 insitu_dem, insitu_dis, rs_dem, rs_dis = [], [], [], []
+                section_inun_freq, section_dem_diff = [], []
 
                 for __ in range(len(dem_temp)):
                     insitu_dis.append(dem_temp[__][0] - offset)
@@ -3411,22 +3433,66 @@ class CSprofile(object):
                         rs_dem_all.append(np.nan)
                         dem_diff_all.append(np.nan)
 
+                    nearest_dem_temp = RS_dem_all[cs_name_][__][3] if inun_freq_factor else RS_dem_all[cs_name_][__][2]
+                    nearest_dem_all.append(nearest_dem_temp)
+                    if np.isfinite(nearest_dem_temp):
+                        nearest_dem_diff_all.append(nearest_dem_temp - dem_temp[__][1])
+                    else:
+                        nearest_dem_diff_all.append(np.nan)
+
                     if inun_freq_factor:
-                        inun_freq_all.append(RS_dem_all[cs_name_][__][2])
+                        inun_freq_temp = RS_dem_all[cs_name_][__][2]
+                        inun_freq_all.append(inun_freq_temp)
+                        section_inun_freq.append(inun_freq_temp)
+                        section_dem_diff.append(dem_diff_all[-1])
 
                 ax_temp.scatter(insitu_dis, insitu_dem, s=12**2, color="none", edgecolor=(0, 1, 0), linewidth=3, marker='o')
                 ax_temp.scatter(rs_dis, rs_dem, s=12**2, color="none", edgecolor=(1, 0, 0), linewidth=3, marker='s')
+                section_bicubic = [RS_dem_all[cs_name_][pos][1] for pos in range(len(dem_temp))]
+                section_nearest = [RS_dem_all[cs_name_][pos][3] if inun_freq_factor else
+                                   RS_dem_all[cs_name_][pos][2] for pos in range(len(dem_temp))]
+                bicubic_metrics, nearest_metrics = _compare_sampling_errors(
+                    insitu_dem, section_bicubic, section_nearest)
+                bicubic_count, bicubic_rmse, bicubic_mae, bicubic_bias = bicubic_metrics
+                nearest_count, nearest_rmse, nearest_mae, nearest_bias = nearest_metrics
+                interpolation_error_rows.extend([
+                    {'csname': cs_name_, 'method': 'bicubic', 'valid_count': bicubic_count,
+                     'rmse': bicubic_rmse, 'mae': bicubic_mae, 'bias': bicubic_bias},
+                    {'csname': cs_name_, 'method': 'nearest', 'valid_count': nearest_count,
+                     'rmse': nearest_rmse, 'mae': nearest_mae, 'bias': nearest_bias}
+                ])
                 plt.savefig(output_path + cs_name_ + '.png', dpi=500)
+                _plot_wl_width_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                _plot_wl_area_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                if inun_freq_factor:
+                    _plot_inun_freq_dem_diff_relation(cs_name_, section_inun_freq, section_dem_diff)
                 plt.close()
                 fig_temp = None
                 ax_temp = None
 
+        bicubic_metrics, nearest_metrics = _compare_sampling_errors(
+            insitu_dem_all, rs_dem_all, nearest_dem_all)
+        bicubic_count, bicubic_rmse, bicubic_mae, bicubic_bias = bicubic_metrics
+        nearest_count, nearest_rmse, nearest_mae, nearest_bias = nearest_metrics
+        interpolation_error_rows.extend([
+            {'csname': 'Overall', 'method': 'bicubic', 'valid_count': bicubic_count,
+             'rmse': bicubic_rmse, 'mae': bicubic_mae, 'bias': bicubic_bias},
+            {'csname': 'Overall', 'method': 'nearest', 'valid_count': nearest_count,
+             'rmse': nearest_rmse, 'mae': nearest_mae, 'bias': nearest_bias}
+        ])
+        pd.DataFrame(interpolation_error_rows).to_csv(
+            output_path + 'interpolation_error_comparison.csv', encoding='GB18030', index=False)
+
+        output_data = {
+            'csname': section_name_all, 'bicubic_dem': rs_dem_all,
+            'nearest_dem': nearest_dem_all, 'insitu_dem': insitu_dem_all,
+            'rs_dis': rs_dis_all, 'bicubic_dem_diff': dem_diff_all,
+            'nearest_dem_diff': nearest_dem_diff_all
+        }
         if inun_freq_factor:
-            df = pd.DataFrame({'csname': section_name_all, 'rs_dem': rs_dem_all, 'insitu_dem': insitu_dem_all, 'rs_dis': rs_dis_all, 'inun_freq': inun_freq_all, 'dem_diff': dem_diff_all})
-        else:
-            df = pd.DataFrame({'csname': section_name_all, 'rs_dem': rs_dem_all, 'insitu_dem': insitu_dem_all, 'rs_dis': rs_dis_all})
-        rmse = np.sqrt(np.sum((np.array(rs_dem_all) - np.array(insitu_dem_all)) ** 2))
-        df.to_csv(output_path + f'dem_all_{str(rmse)[0:6]}.csv', encoding='GB18030')
+            output_data['inun_freq'] = inun_freq_all
+        df = pd.DataFrame(output_data)
+        df.to_csv(output_path + f'dem_all_{str(bicubic_rmse)[0:6]}.csv', encoding='GB18030', index=False)
 
 
     def to_geojson(self, output_path: str = None):
