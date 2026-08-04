@@ -25,6 +25,7 @@ import json
 import River_GIS
 import ast
 from scipy.interpolate import make_interp_spline
+from scipy.interpolate import RectBivariateSpline
 import math
 import imageio.v2 as imageio
 import shutil
@@ -2092,6 +2093,56 @@ class Flood_freq_based_hyspometry_method(object):
         #     year_m = ndsm(*matrix_list, SM_namelist=doy_list)
         #     year_m.save(thalweg_temp.work_env + f'yearly_wl\\{str(year)}\\')
 
+
+
+
+class CSprofile(object):
+
+    # CSprofile contains the Profile of cross-sections from the following several aspects:
+    # 0 The name of each cross-section (Key element \\ import from all files)
+    # 1 The distance to left bank of each node for each cross-section (Essential \\ import from standard cs file)
+    # 2 The elevation profile of each node (Essential \\ import from standard cs file)
+    # 3 The distance along river of each river (Essential \\ import from standard cs file)
+    # 4 The floodplain or channel type for each node (Optional \\ import from standard cs file or automatic generate through func)
+    # 5 The xy coordinates of each node (Optional \\ import from cs coords file)
+    # 6 The factor present if the cross-section is tributary or not (Optional \\ import from cs coords file)
+    # 7 The factor present if the cross-section is control cross-section or not (Optional \\ merged from hydro dataset)
+
+    def __init__(self, work_env=None):
+
+        # Define work env
+        if work_env is None:
+            self.work_env = None
+        else:
+            try:
+                bf.create_folder(work_env)
+                self.work_env = bf.Path(work_env).path_name
+            except:
+                self.work_env = None
+
+        # Define the property of cross-section
+        self.cross_section_name = None  # list of cross-section name (keys)
+        self.cross_section_ele = None  # list of cross-section elevation
+        self.cross_section_dis = None  # list of cross-section distance along the main channel
+        self.cross_section_type = None  # list of cross-section type
+        self.cross_section_tribu = None   # list of cross-section tributary factor
+        self.cross_section_cntrl = None  # list of control cross-section factor
+        self.cross_section_bank_coord = None  # list of cross-section tributary factor
+        self.cross_section_geodf = None  # cross-section Geo Dataframe
+        self.cross_section_num = 0
+        self.crs = None
+        self.issued_cross_section = []
+
+        # Define the DEM extracted cross-section inform
+        self.cross_section_2D_dem = None
+
+        # Define the differential dem
+        self.cross_section_diff = None
+        self.cross_section_diff_geometry = None
+
+        # Define the reference elevation map used by annual topography refinement
+        self.ref_ele_map = None
+
     def refine_annual_topography(self, thalweg_temp, inun_dc: Landsat_dc, hydro_dc: HydroDC, elevation_map: str = None):
 
         if self.work_env is None:
@@ -2122,9 +2173,7 @@ class Flood_freq_based_hyspometry_method(object):
             linestr = thalweg_temp.Thalweg_Linestring
 
         # Check the year
-        if hydro_dc.year not in self.year_list:
-            raise Exception('Please input the hydro datacube under right year!')
-        elif hydro_dc.year not in np.unique(np.floor(np.array(inun_dc.sdc_doylist)/10000).astype(np.int32)):
+        if hydro_dc.year not in np.unique(np.floor(np.array(inun_dc.sdc_doylist)/10000).astype(np.int32)):
             raise Exception('Please input the inundation dc under right year!')
 
         boundary_wl = np.zeros_like(ele_arr) * np.nan
@@ -2240,51 +2289,6 @@ class Flood_freq_based_hyspometry_method(object):
             # Method 3 Linear interpolation
 
             # Method 4
-
-
-class CSprofile(object):
-
-    # CSprofile contains the Profile of cross-sections from the following several aspects:
-    # 0 The name of each cross-section (Key element \\ import from all files)
-    # 1 The distance to left bank of each node for each cross-section (Essential \\ import from standard cs file)
-    # 2 The elevation profile of each node (Essential \\ import from standard cs file)
-    # 3 The distance along river of each river (Essential \\ import from standard cs file)
-    # 4 The floodplain or channel type for each node (Optional \\ import from standard cs file or automatic generate through func)
-    # 5 The xy coordinates of each node (Optional \\ import from cs coords file)
-    # 6 The factor present if the cross-section is tributary or not (Optional \\ import from cs coords file)
-    # 7 The factor present if the cross-section is control cross-section or not (Optional \\ merged from hydro dataset)
-
-    def __init__(self, work_env=None):
-
-        # Define work env
-        if work_env is None:
-            self.work_env = None
-        else:
-            try:
-                bf.create_folder(work_env)
-                self.work_env = bf.Path(work_env).path_name
-            except:
-                self.work_env = None
-
-        # Define the property of cross-section
-        self.cross_section_name = None  # list of cross-section name (keys)
-        self.cross_section_ele = None  # list of cross-section elevation
-        self.cross_section_dis = None  # list of cross-section distance along the main channel
-        self.cross_section_type = None  # list of cross-section type
-        self.cross_section_tribu = None   # list of cross-section tributary factor
-        self.cross_section_cntrl = None  # list of control cross-section factor
-        self.cross_section_bank_coord = None  # list of cross-section tributary factor
-        self.cross_section_geodf = None  # cross-section Geo Dataframe
-        self.cross_section_num = 0
-        self.crs = None
-        self.issued_cross_section = []
-
-        # Define the DEM extracted cross-section inform
-        self.cross_section_2D_dem = None
-
-        # Define the differential dem
-        self.cross_section_diff = None
-        self.cross_section_diff_geometry = None
 
     def _consistent_CSprofile(self):
 
@@ -3114,7 +3118,11 @@ class CSprofile(object):
                         gdal.Warp('/vsimem/temp1.TIF', ds_temp, )
                         ds_temp = gdal.Open('/vsimem/temp1.TIF')
                     [ul_x, x_res, xt, ul_y, yt, y_res] = ds_temp.GetGeoTransform()
-                    arr = ds_temp.GetRasterBand(1).ReadAsArray()
+                    dem_band = ds_temp.GetRasterBand(1)
+                    arr = dem_band.ReadAsArray().astype(np.float64)
+                    dem_nodata = dem_band.GetNoDataValue()
+                    if dem_nodata is not None:
+                        arr[arr == dem_nodata] = np.nan
                 except:
                     raise ValueError('The dem tif file is problematic!')
         else:
@@ -3131,22 +3139,235 @@ class CSprofile(object):
                     if int(srs_temp.split(':')[-1]) != int(self.crs.split(':')[-1]):
                         gdal.Warp('/vsimem/temp1.TIF', ds_temp, )
                         ds_temp = gdal.Open('/vsimem/temp1.TIF')
-                    [ul_x, x_res, xt, ul_y, yt, y_res] = ds_temp.GetGeoTransform()
-                    inun_freq_arr = ds_temp.GetRasterBand(1).ReadAsArray()
+                    [inun_ul_x, inun_x_res, inun_xt, inun_ul_y, inun_yt, inun_y_res] = ds_temp.GetGeoTransform()
+                    inun_freq_band = ds_temp.GetRasterBand(1)
+                    inun_freq_arr = inun_freq_band.ReadAsArray().astype(np.float64)
+                    inun_freq_nodata = inun_freq_band.GetNoDataValue()
+                    if inun_freq_nodata is not None:
+                        inun_freq_arr[inun_freq_arr == inun_freq_nodata] = np.nan
+                    finite_inun_freq = inun_freq_arr[np.isfinite(inun_freq_arr)]
+                    if finite_inun_freq.size == 0:
+                        raise ValueError('The inun_freq file contains no valid value!')
+                    if np.nanmax(finite_inun_freq) <= 1:
+                        inun_freq_min, inun_freq_max = 0.02, 0.98
+                    else:
+                        inun_freq_min, inun_freq_max = 2, 98
+                    invalid_inun_freq = ((inun_freq_arr < inun_freq_min) |
+                                         (inun_freq_arr > inun_freq_max))
+                    inun_freq_arr[invalid_inun_freq] = np.nan
                     inun_freq_factor = True
                 except:
                     raise ValueError('The inun_freq file is problematic!')
-        else:
+        elif inun_freq is not None:
             raise TypeError('The inun_freq should be a TIF file')
+        else:
+            inun_freq_factor = False
 
         # Generate FIGURE para
-        insitu_dem_all, rs_dem_all, section_name_all, rs_dis_all, dem_diff_all = [], [], [], [], []
+        insitu_dem_all, rs_dem_all, nearest_dem_all, section_name_all, rs_dis_all = [], [], [], [], []
+        dem_diff_all, nearest_dem_diff_all, interpolation_error_rows = [], [], []
         inun_freq_all = [] if inun_freq_factor else None
         plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
         plt.rc('font', size=24)
         plt.rc('axes', linewidth=2)
         output_path = self.work_env + 'output_Fig\\' + dem_tif.split('\\')[-1].split('.')[0] + '\\' if diff_ele is not True else self.work_env + 'output_Fig\\' + dem_tif.split('\\')[-1].split('.')[0] + '_diff_ele\\'
         bf.create_folder(output_path)
+
+        def _idw_interpolate(raster, pixel_x, pixel_y, search_radius=3):
+            center_x, center_y = int(np.floor(pixel_x)), int(np.floor(pixel_y))
+            weighted_value, weight_sum = 0.0, 0.0
+            for row in range(max(0, center_y - search_radius),
+                             min(raster.shape[0], center_y + search_radius + 1)):
+                for column in range(max(0, center_x - search_radius),
+                                    min(raster.shape[1], center_x + search_radius + 1)):
+                    value = raster[row, column]
+                    if not np.isfinite(value):
+                        continue
+                    distance = distance_between_2points(
+                        [pixel_x, pixel_y], [column + 0.5, row + 0.5])
+                    if distance == 0:
+                        return float(value)
+                    weight = 1 / distance
+                    weighted_value += value * weight
+                    weight_sum += weight
+            return weighted_value / weight_sum if weight_sum > 0 else np.nan
+
+        def _sample_dem(raster, pixel_x, pixel_y, method):
+            raster_x, raster_y = pixel_x - 0.5, pixel_y - 0.5
+            if method == 'nearest':
+                column, row = int(np.rint(raster_x)), int(np.rint(raster_y))
+                if 0 <= row < raster.shape[0] and 0 <= column < raster.shape[1]:
+                    value = raster[row, column]
+                    return float(value) if np.isfinite(value) else np.nan
+                return np.nan
+            if method == 'bicubic':
+                column_start = int(np.floor(raster_x)) - 1
+                row_start = int(np.floor(raster_y)) - 1
+                columns = np.arange(column_start, column_start + 4)
+                rows = np.arange(row_start, row_start + 4)
+                if (rows[0] < 0 or rows[-1] >= raster.shape[0] or
+                        columns[0] < 0 or columns[-1] >= raster.shape[1]):
+                    return np.nan
+                local_values = raster[np.ix_(rows, columns)]
+                if not np.all(np.isfinite(local_values)):
+                    return np.nan
+                interpolator = RectBivariateSpline(rows, columns, local_values, kx=3, ky=3)
+                return float(interpolator(raster_y, raster_x)[0, 0])
+            raise ValueError(f'Unsupported DEM sampling method: {method}')
+
+        def _calculate_error_metrics(insitu_values, raster_values):
+            insitu_arr = np.asarray(insitu_values, dtype=np.float64)
+            raster_arr = np.asarray(raster_values, dtype=np.float64)
+            valid_pos = np.isfinite(insitu_arr) & np.isfinite(raster_arr)
+            if not np.any(valid_pos):
+                return 0, np.nan, np.nan, np.nan
+            difference = raster_arr[valid_pos] - insitu_arr[valid_pos]
+            return (int(np.sum(valid_pos)), np.sqrt(np.mean(difference ** 2)),
+                    np.mean(np.abs(difference)), np.mean(difference))
+
+        def _compare_sampling_errors(insitu_values, bicubic_values, nearest_values):
+            insitu_arr = np.asarray(insitu_values, dtype=np.float64)
+            bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
+            nearest_arr = np.asarray(nearest_values, dtype=np.float64)
+            common_valid = (np.isfinite(insitu_arr) & np.isfinite(bicubic_arr) &
+                            np.isfinite(nearest_arr))
+            common_insitu = insitu_arr[common_valid]
+            return (_calculate_error_metrics(common_insitu, bicubic_arr[common_valid]),
+                    _calculate_error_metrics(common_insitu, nearest_arr[common_valid]))
+
+        def _preprocess_cross_section_points(dis_list, ele_list):
+            dis_arr = np.array(dis_list, dtype=np.float32)
+            ele_arr = np.array(ele_list, dtype=np.float32)
+            valid_pos = ~np.isnan(dis_arr) & ~np.isnan(ele_arr)
+            dis_arr = dis_arr[valid_pos]
+            ele_arr = ele_arr[valid_pos]
+            if dis_arr.shape[0] < 2:
+                return None, None
+
+            sort_pos = np.argsort(dis_arr)
+            return dis_arr[sort_pos], ele_arr[sort_pos]
+
+        def _extract_wl_width_points(dis_list, ele_list):
+            dis_arr, ele_arr = _preprocess_cross_section_points(dis_list, ele_list)
+            if dis_arr is None:
+                return [], []
+
+            wl_list = ele_arr
+            river_width_list = []
+            for wl_temp in wl_list:
+                inundated_dis = []
+                for pos_temp in range(dis_arr.shape[0] - 1):
+                    st_dis, ed_dis = dis_arr[pos_temp], dis_arr[pos_temp + 1]
+                    st_ele, ed_ele = ele_arr[pos_temp], ele_arr[pos_temp + 1]
+                    if st_ele <= wl_temp:
+                        inundated_dis.append(st_dis)
+                    if (st_ele - wl_temp) * (ed_ele - wl_temp) < 0:
+                        ratio = (wl_temp - st_ele) / (ed_ele - st_ele)
+                        inundated_dis.append(st_dis + ratio * (ed_dis - st_dis))
+                if ele_arr[-1] <= wl_temp:
+                    inundated_dis.append(dis_arr[-1])
+
+                if len(inundated_dis) >= 2:
+                    river_width_list.append(max(inundated_dis) - min(inundated_dis))
+                else:
+                    river_width_list.append(0)
+
+            return wl_list.tolist(), river_width_list
+
+        def _extract_wl_area_points(dis_list, ele_list):
+            dis_arr, ele_arr = _preprocess_cross_section_points(dis_list, ele_list)
+            if dis_arr is None:
+                return [], []
+
+            wl_list = ele_arr
+            flow_area_list = []
+            for wl_temp in wl_list:
+                flow_area_temp = 0
+                for pos_temp in range(dis_arr.shape[0] - 1):
+                    st_dis, ed_dis = dis_arr[pos_temp], dis_arr[pos_temp + 1]
+                    st_depth = wl_temp - ele_arr[pos_temp]
+                    ed_depth = wl_temp - ele_arr[pos_temp + 1]
+                    segment_width = ed_dis - st_dis
+                    if st_depth > 0 and ed_depth > 0:
+                        flow_area_temp += (st_depth + ed_depth) * segment_width / 2
+                    elif st_depth > 0 or ed_depth > 0:
+                        wet_depth = max(st_depth, ed_depth)
+                        dry_depth = min(st_depth, ed_depth)
+                        wet_width = segment_width * wet_depth / (wet_depth - dry_depth)
+                        flow_area_temp += wet_depth * wet_width / 2
+                flow_area_list.append(flow_area_temp)
+
+            return wl_list.tolist(), flow_area_list
+
+        def _plot_wl_width_relation(cs_name, insitu_dis, insitu_dem, rs_dis=None, rs_dem=None):
+            relation_output_path = output_path + 'wl_width_relation\\'
+            bf.create_folder(relation_output_path)
+            insitu_wl, insitu_width = _extract_wl_width_points(insitu_dis, insitu_dem)
+            relation_df = pd.DataFrame({'insitu_wl': insitu_wl, 'insitu_width': insitu_width})
+
+            fig_width_temp, ax_width_temp = plt.subplots(figsize=(8, 6), constrained_layout=True)
+            ax_width_temp.scatter(insitu_width, insitu_wl, s=8 ** 2, color='none', edgecolor=(0, 1, 0), linewidth=2, marker='o', label='In-situ DEM')
+
+            if rs_dis is not None and rs_dem is not None:
+                rs_wl, rs_width = _extract_wl_width_points(rs_dis, rs_dem)
+                if len(rs_wl) != 0:
+                    relation_df = pd.concat([relation_df, pd.DataFrame({'rs_wl': rs_wl, 'rs_width': rs_width})], axis=1)
+                    ax_width_temp.scatter(rs_width, rs_wl, s=8 ** 2, color='none', edgecolor=(1, 0, 0), linewidth=2, marker='s', label='Raster DEM')
+
+            ax_width_temp.set_ylabel('Water level/m', fontname='Times New Roman', fontsize=24, fontweight='bold')
+            ax_width_temp.set_xlabel('River width/m', fontname='Times New Roman', fontsize=24, fontweight='bold')
+            ax_width_temp.legend(fontsize=18)
+            plt.savefig(relation_output_path + cs_name + '_wl_width.png', dpi=500)
+            plt.close()
+            relation_df.to_csv(relation_output_path + cs_name + '_wl_width.csv', encoding='GB18030')
+
+        def _plot_wl_area_relation(cs_name, insitu_dis, insitu_dem, rs_dis=None, rs_dem=None):
+            relation_output_path = output_path + 'wl_area_relation\\'
+            bf.create_folder(relation_output_path)
+            insitu_wl, insitu_area = _extract_wl_area_points(insitu_dis, insitu_dem)
+            relation_df = pd.DataFrame({'insitu_wl': insitu_wl, 'insitu_flow_area': insitu_area})
+
+            fig_area_temp, ax_area_temp = plt.subplots(figsize=(8, 6), constrained_layout=True)
+            ax_area_temp.plot(insitu_area, insitu_wl, color=(0, 1, 0), linewidth=2, marker='o', markersize=6, markerfacecolor='none', label='In-situ DEM')
+
+            if rs_dis is not None and rs_dem is not None:
+                rs_wl, rs_area = _extract_wl_area_points(rs_dis, rs_dem)
+                if len(rs_wl) != 0:
+                    relation_df = pd.concat([relation_df, pd.DataFrame({'rs_wl': rs_wl, 'rs_flow_area': rs_area})], axis=1)
+                    ax_area_temp.plot(rs_area, rs_wl, color=(1, 0, 0), linewidth=2, marker='s', markersize=6, markerfacecolor='none', label='Raster DEM')
+
+            ax_area_temp.set_ylabel('Water level/m', fontname='Times New Roman', fontsize=24, fontweight='bold')
+            ax_area_temp.set_xlabel('Flow area/$m^2$', fontname='Times New Roman', fontsize=24, fontweight='bold')
+            ax_area_temp.legend(fontsize=18)
+            plt.savefig(relation_output_path + cs_name + '_wl_area.png', dpi=500)
+            plt.close()
+            relation_df.to_csv(relation_output_path + cs_name + '_wl_area.csv', encoding='GB18030')
+
+        def _plot_inun_freq_dem_diff_relation(cs_name, inun_freq_list, dem_diff_list):
+            relation_output_path = output_path + 'inun_freq_dem_diff_relation\\'
+            bf.create_folder(relation_output_path)
+            inun_freq_arr_temp = np.asarray(inun_freq_list, dtype=np.float64)
+            dem_diff_arr_temp = np.asarray(dem_diff_list, dtype=np.float64)
+            valid_pos = np.isfinite(inun_freq_arr_temp) & np.isfinite(dem_diff_arr_temp)
+            inun_freq_arr_temp = inun_freq_arr_temp[valid_pos]
+            dem_diff_arr_temp = dem_diff_arr_temp[valid_pos]
+
+            relation_df = pd.DataFrame({
+                'inun_freq': inun_freq_arr_temp,
+                'dem_diff': dem_diff_arr_temp
+            })
+            fig_diff_temp, ax_diff_temp = plt.subplots(figsize=(8, 6), constrained_layout=True)
+            ax_diff_temp.scatter(inun_freq_arr_temp, dem_diff_arr_temp, s=8 ** 2,
+                                 color='none', edgecolor=(0, 0, 1), linewidth=2, marker='o')
+            ax_diff_temp.axhline(0, color='black', linewidth=1, linestyle='--')
+            ax_diff_temp.set_xlabel('Inundation frequency', fontname='Times New Roman', fontsize=24,
+                                    fontweight='bold')
+            ax_diff_temp.set_ylabel('DEM difference/m', fontname='Times New Roman', fontsize=24,
+                                    fontweight='bold')
+            plt.savefig(relation_output_path + cs_name + '_inun_freq_dem_diff.png', dpi=500)
+            plt.close()
+            relation_df.to_csv(relation_output_path + cs_name + '_inun_freq_dem_diff.csv',
+                               encoding='GB18030', index=False)
 
         # Compare dem
         RS_dem_all = {}
@@ -3175,42 +3396,21 @@ class CSprofile(object):
                         pos_y_new = (coord_y - ul_y) / y_res
                         pos_x = int(np.floor((coord_x - ul_x) / x_res))
                         pos_y = int(np.floor((coord_y - ul_y) / y_res))
-                        if np.isnan(arr[pos_y, pos_x]):
+                        if not (0 <= pos_x < arr.shape[1] and 0 <= pos_y < arr.shape[0]):
                             if inun_freq_factor:
+                                RS_dem.append([np.nan, np.nan, np.nan, np.nan])
+                            else:
                                 RS_dem.append([np.nan, np.nan, np.nan])
-                            else:
-                                RS_dem.append([np.nan, np.nan])
                         else:
-                            x, y, z, dis, z_dis = [], [], [], [], []
-                            inun_freq_l = [] if inun_freq_factor else None
-                            inun_freq_dis = [] if inun_freq_factor else None
-                            for pos_y_temp in range(pos_y - 2, pos_y + 4):
-                                for pos_x_temp in range(pos_x - 2, pos_x + 4):
-                                    if ~np.isnan(arr[pos_y_temp, pos_x_temp]):
-                                        x.append(pos_x_temp + 0.5)
-                                        y.append(pos_y_temp + 0.5)
-                                        z.append(arr[pos_y_temp, pos_x_temp])
-                                        dis.append(1 / (x_res * distance_between_2points([pos_x_new, pos_y_new], [pos_x_temp, pos_y_temp])))
-                                        z_dis.append(arr[pos_y_temp, pos_x_temp] / (x_res * distance_between_2points([pos_x_new, pos_y_new], [pos_x_temp, pos_y_temp])))
-                                        if inun_freq_factor:
-                                            inun_freq_l.append(1 / (x_res * distance_between_2points([pos_x_new, pos_y_new], [pos_x_temp, pos_y_temp])))
-                                            inun_freq_dis.append(inun_freq_arr[pos_y_temp, pos_x_temp] / (x_res * distance_between_2points([pos_x_new, pos_y_new], [pos_x_temp, pos_y_temp])))
-
-                            v2 = np.sum(np.array(z_dis)) / np.sum(np.array(dis))
+                            bicubic_dem = _sample_dem(arr, pos_x_new, pos_y_new, 'bicubic')
+                            nearest_dem = _sample_dem(arr, pos_x_new, pos_y_new, 'nearest')
                             if inun_freq_factor:
-                                v3 = np.sum(np.array(inun_freq_l)) / np.sum(np.array(inun_freq_dis))
-                            # func = interpolate.CloughTocher2DInterpolator(list(zip(x, y)), z)
-                            # v = func(pos_x_new, pos_y_new)
-                            if pos_x < arr.shape[1] and pos_y < arr.shape[0]:
-                                if inun_freq_factor:
-                                    RS_dem.append([coords_temp.coords[__], v2, v3])
-                                else:
-                                    RS_dem.append([coords_temp.coords[__], v2])
+                                inun_pos_x = (coord_x - inun_ul_x) / inun_x_res
+                                inun_pos_y = (coord_y - inun_ul_y) / inun_y_res
+                                v3 = _idw_interpolate(inun_freq_arr, inun_pos_x, inun_pos_y)
+                                RS_dem.append([coords_temp.coords[__], bicubic_dem, v3, nearest_dem])
                             else:
-                                if inun_freq_factor:
-                                    RS_dem.append([np.nan, np.nan, np.nan])
-                                else:
-                                    RS_dem.append([np.nan, np.nan])
+                                RS_dem.append([coords_temp.coords[__], bicubic_dem, nearest_dem])
 
                     RS_dem_all[cs_name_] = RS_dem
                 else:
@@ -3222,6 +3422,7 @@ class CSprofile(object):
                 fig_temp, ax_temp = plt.subplots(figsize=(11, 5), constrained_layout=True)
                 offset = dem_temp[0][0]
                 insitu_dem, insitu_dis, rs_dem, rs_dis = [], [], [], []
+                section_inun_freq, section_dem_diff = [], []
 
                 for __ in range(len(dem_temp)):
                     insitu_dis.append(dem_temp[__][0] - offset)
@@ -3240,22 +3441,66 @@ class CSprofile(object):
                         rs_dem_all.append(np.nan)
                         dem_diff_all.append(np.nan)
 
+                    nearest_dem_temp = RS_dem_all[cs_name_][__][3] if inun_freq_factor else RS_dem_all[cs_name_][__][2]
+                    nearest_dem_all.append(nearest_dem_temp)
+                    if np.isfinite(nearest_dem_temp):
+                        nearest_dem_diff_all.append(nearest_dem_temp - dem_temp[__][1])
+                    else:
+                        nearest_dem_diff_all.append(np.nan)
+
                     if inun_freq_factor:
-                        inun_freq_all.append(RS_dem_all[cs_name_][__][2])
+                        inun_freq_temp = RS_dem_all[cs_name_][__][2]
+                        inun_freq_all.append(inun_freq_temp)
+                        section_inun_freq.append(inun_freq_temp)
+                        section_dem_diff.append(dem_diff_all[-1])
 
                 ax_temp.scatter(insitu_dis, insitu_dem, s=12**2, color="none", edgecolor=(0, 1, 0), linewidth=3, marker='o')
                 ax_temp.scatter(rs_dis, rs_dem, s=12**2, color="none", edgecolor=(1, 0, 0), linewidth=3, marker='s')
+                section_bicubic = [RS_dem_all[cs_name_][pos][1] for pos in range(len(dem_temp))]
+                section_nearest = [RS_dem_all[cs_name_][pos][3] if inun_freq_factor else
+                                   RS_dem_all[cs_name_][pos][2] for pos in range(len(dem_temp))]
+                bicubic_metrics, nearest_metrics = _compare_sampling_errors(
+                    insitu_dem, section_bicubic, section_nearest)
+                bicubic_count, bicubic_rmse, bicubic_mae, bicubic_bias = bicubic_metrics
+                nearest_count, nearest_rmse, nearest_mae, nearest_bias = nearest_metrics
+                interpolation_error_rows.extend([
+                    {'csname': cs_name_, 'method': 'bicubic', 'valid_count': bicubic_count,
+                     'rmse': bicubic_rmse, 'mae': bicubic_mae, 'bias': bicubic_bias},
+                    {'csname': cs_name_, 'method': 'nearest', 'valid_count': nearest_count,
+                     'rmse': nearest_rmse, 'mae': nearest_mae, 'bias': nearest_bias}
+                ])
                 plt.savefig(output_path + cs_name_ + '.png', dpi=500)
+                _plot_wl_width_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                _plot_wl_area_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                if inun_freq_factor:
+                    _plot_inun_freq_dem_diff_relation(cs_name_, section_inun_freq, section_dem_diff)
                 plt.close()
                 fig_temp = None
                 ax_temp = None
 
+        bicubic_metrics, nearest_metrics = _compare_sampling_errors(
+            insitu_dem_all, rs_dem_all, nearest_dem_all)
+        bicubic_count, bicubic_rmse, bicubic_mae, bicubic_bias = bicubic_metrics
+        nearest_count, nearest_rmse, nearest_mae, nearest_bias = nearest_metrics
+        interpolation_error_rows.extend([
+            {'csname': 'Overall', 'method': 'bicubic', 'valid_count': bicubic_count,
+             'rmse': bicubic_rmse, 'mae': bicubic_mae, 'bias': bicubic_bias},
+            {'csname': 'Overall', 'method': 'nearest', 'valid_count': nearest_count,
+             'rmse': nearest_rmse, 'mae': nearest_mae, 'bias': nearest_bias}
+        ])
+        pd.DataFrame(interpolation_error_rows).to_csv(
+            output_path + 'interpolation_error_comparison.csv', encoding='GB18030', index=False)
+
+        output_data = {
+            'csname': section_name_all, 'bicubic_dem': rs_dem_all,
+            'nearest_dem': nearest_dem_all, 'insitu_dem': insitu_dem_all,
+            'rs_dis': rs_dis_all, 'bicubic_dem_diff': dem_diff_all,
+            'nearest_dem_diff': nearest_dem_diff_all
+        }
         if inun_freq_factor:
-            df = pd.DataFrame({'csname': section_name_all, 'rs_dem': rs_dem_all, 'insitu_dem': insitu_dem_all, 'rs_dis': rs_dis_all, 'inun_freq': inun_freq_all, 'dem_diff': dem_diff_all})
-        else:
-            df = pd.DataFrame({'csname': section_name_all, 'rs_dem': rs_dem_all, 'insitu_dem': insitu_dem_all, 'rs_dis': rs_dis_all})
-        rmse = np.sqrt(np.sum((np.array(rs_dem_all) - np.array(insitu_dem_all)) ** 2))
-        df.to_csv(output_path + f'dem_all_{str(rmse)[0:6]}.csv', encoding='GB18030')
+            output_data['inun_freq'] = inun_freq_all
+        df = pd.DataFrame(output_data)
+        df.to_csv(output_path + f'dem_all_{str(bicubic_rmse)[0:6]}.csv', encoding='GB18030', index=False)
 
 
     def to_geojson(self, output_path: str = None):
