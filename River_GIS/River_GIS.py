@@ -3518,11 +3518,31 @@ class CSprofile(object):
                         section_inun_freq.append(inun_freq_temp)
                         section_dem_diff.append(dem_diff_all[-1])
 
-                ax_temp.scatter(insitu_dis, insitu_dem, s=12**2, color="none", edgecolor=(0, 1, 0), linewidth=3, marker='o')
-                ax_temp.scatter(rs_dis, rs_dem, s=12**2, color="none", edgecolor=(1, 0, 0), linewidth=3, marker='s')
                 section_bicubic = [RS_dem_all[cs_name_][pos][1] for pos in range(len(dem_temp))]
                 section_nearest = [RS_dem_all[cs_name_][pos][3] if inun_freq_factor else
                                    RS_dem_all[cs_name_][pos][2] for pos in range(len(dem_temp))]
+                excluded_saturated_rsdem, section_saturation_threshold = \
+                    _identify_saturated_rsdem_points(
+                        section_inun_freq if inun_freq_factor else None,
+                        section_bicubic, section_nearest)
+                section_distance_arr = np.asarray(insitu_dis, dtype=np.float64)
+                section_bicubic_arr = np.asarray(section_bicubic, dtype=np.float64)
+                valid_bicubic = np.isfinite(section_bicubic_arr)
+                retained_bicubic = valid_bicubic & ~excluded_saturated_rsdem
+                excluded_bicubic = valid_bicubic & excluded_saturated_rsdem
+
+                ax_temp.scatter(insitu_dis, insitu_dem, s=12**2, color="none",
+                                edgecolor=(0, 1, 0), linewidth=3, marker='o',
+                                label='In-situ DEM')
+                ax_temp.scatter(section_distance_arr[retained_bicubic],
+                                section_bicubic_arr[retained_bicubic], s=12**2,
+                                color="none", edgecolor=(1, 0, 0), linewidth=3,
+                                marker='s', label='Retained RSDEM')
+                ax_temp.scatter(section_distance_arr[excluded_bicubic],
+                                section_bicubic_arr[excluded_bicubic], s=12**2,
+                                color="none", edgecolor=(0, 0, 1), linewidth=3,
+                                marker='s', label='Excluded saturated RSDEM')
+                ax_temp.legend(fontsize=14)
                 _export_cross_section_dem_points(
                     cs_name_, insitu_dis, insitu_dem, section_bicubic, section_nearest,
                     section_inun_freq if inun_freq_factor else None)
