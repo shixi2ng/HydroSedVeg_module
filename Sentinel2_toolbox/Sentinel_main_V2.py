@@ -1154,7 +1154,10 @@ class Sentinel2_ds(object):
                     else:
                         file_list = bf.file_filter(f'{self.output_path}Sentinel2_constructed_index\\QI\\', ['.TIF'], and_or_factor='and')
                     bf.create_folder(self.output_path + 'ROI_map\\')
-                    ds_temp = gdal.Open(file_list[0])
+                    gdal.Warp('/vsimem/' + 'ROI_map\\' + 'pre_' + self.ROI_name + '_map.TIF',
+                              file_list[0], dstSRS=self.main_coordinate_system, cutlineDSName=self.ROI, cropToCutline=True,
+                              xRes=10, yRes=10, dstNodata=255)
+                    ds_temp = gdal.Open('/vsimem/' + 'ROI_map\\' + 'pre_' + self.ROI_name + '_map.TIF')
                     array_temp = ds_temp.GetRasterBand(1).ReadAsArray()
                     array_temp[:, :] = 1
                     write_raster(ds_temp, array_temp, self.cache_folder, 'temp_' + self.ROI_name + '.TIF',
@@ -1183,9 +1186,10 @@ class Sentinel2_ds(object):
                                       self.cache_folder + 'temp_' + self.ROI_name + '.TIF', cutlineDSName=self.ROI,
                                       cropToCutline=True, dstNodata=-32768, xRes=10, yRes=10)
                     gdal.Unlink('/vsimem/' + 'ROI_map\\' + self.ROI_name + '_map.TIF')
+                    gdal.Unlink('/vsimem/' + 'ROI_map\\' + 'pre_' + self.ROI_name + '_map.TIF')
                     ds_temp = None
                     ds_ROI_array = None
-                    remove_all_file_and_folder(bf.file_filter(self.cache_folder, ['temp', '.TIF'], and_or_factor='and'))
+                    remove_all_file_and_folder(bf.file_filter(self.cache_folder, ['pre', 'temp', '.TIF'], and_or_factor='and'))
 
             if self._combine_band_factor:
                 time4 = time.time()

@@ -917,7 +917,7 @@ class RS_dcs(object):
 
                         # Separate into several stacks
                         inundation_dc_list = []
-                        worker = int(os.cpu_count() / 4)
+                        worker = int(os.cpu_count())
                         range_ = int(np.floor(inundation_dc.shape[2] / worker))
                         for _ in range(worker):
                             if (_ + 1) * range_ >= inundation_dc.shape[2]:
@@ -929,14 +929,14 @@ class RS_dcs(object):
 
                         inundation_dc = None
                         sz, zoff, nd, thr = self._size_control_factor_list[dc_num], self._Zoffset_list[dc_num], self._Nodata_value_list[dc_num], self._static_wi_threshold
-                        with concurrent.futures.ProcessPoolExecutor(max_workers=worker) as executor:
+                        with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
                             res = executor.map(mp_static_wi_detection, inundation_dc_list, repeat(sz), repeat(zoff),  repeat(nd), repeat(thr))
 
                         res = list(res)
                         for _ in res:
                             for __ in range(len(_[0])):
                                 inundation_array.append(_[0][__], name=_[1][__])
-                                write_raster(gdal.Open(self.ROI_tif), _[0][__], static_inditif_path, f'Static_{str(_[1][__])}.TIF', raster_datatype=gdal.GDT_Byte, nodatavalue=0)
+                                write_raster(gdal.Open(self.ROI_tif), _[0][__].toarray(), static_inditif_path, f'Static_{str(_[1][__])}.TIF', raster_datatype=gdal.GDT_Byte, nodatavalue=0)
 
                     else:
                         inundation_arr_list = []
@@ -1185,20 +1185,16 @@ class RS_dcs(object):
             temp_ds = gdal.Open(file_filter(inditif_path, ['.TIF'])[0])
             for year in year_array:
                 if not os.path.exists(f'{annualtif_path}{inundation_mapping_method}_{str(year)}.TIF') or not os.path.exists(f'{annualshp_path}{inundation_mapping_method}_{str(year)}.shp') or self._inundation_overwritten_factor:
-                    annual_vi_list = []
+                    annual_vi_arr = np.zeros([inundation_dc.dc.shape[0], inundation_dc.dc.shape[1]], dtype=np.byte)
                     for doy_index in range(doy_array.shape[0]):
                         if doy_array[doy_index] // 1000 == year and 90 <= np.mod(doy_array[doy_index], 1000) <= 300:
                             if isinstance(inundation_dc.dc, NDSparseMatrix):
                                 arr_temp = inundation_dc.dc.SM_group[inundation_dc.dc.SM_namelist[doy_index]]
-                                annual_vi_list.append(arr_temp.toarray())
+                                annual_vi_arr = np.nanmax([arr_temp.toarray(), annual_vi_arr], axis=0)
                             else:
-                                annual_vi_list.append(inundation_dc.dc[:, :, doy_index])
+                                annual_vi_arr = np.nanmax([inundation_dc.dc[:, :, doy_index], annual_vi_arr], axis=0)
 
-                    if annual_vi_list == []:
-                        annual_inundated_map = np.zeros([inundation_dc.dc.shape[0], inundation_dc.dc.shape[1]], dtype=np.byte)
-                    else:
-                        annual_inundated_map = np.nanmax(np.stack(annual_vi_list, axis=2), axis=2)
-                    write_raster(temp_ds, annual_inundated_map, annualtif_path, f'{inundation_mapping_method}_' + str(year) + '.TIF', raster_datatype=gdal.GDT_Byte, nodatavalue=0)
+                    write_raster(temp_ds, annual_vi_arr, annualtif_path, f'{inundation_mapping_method}_' + str(year) + '.TIF', raster_datatype=gdal.GDT_Byte, nodatavalue=0)
                     annual_ds = gdal.Open(annualtif_path + f'{inundation_mapping_method}_' + str(year) + '.TIF')
 
                     # Create shp driver
@@ -1252,14 +1248,13 @@ class RS_dcs(object):
                 doy_array = date2doy(np.array(inundation_dc.sdc_doylist))
                 temp_ds = gdal.Open(file_filter(inditif_path, ['.TIF'])[0])
                 roi_temp = np.load(self.ROI_array)
-                inun_arr, all_arr = np.zeros_like(roi_temp).astype(np.float32), np.zeros_like(roi_temp).astype(
-                    np.float32)
+                inun_arr, all_arr = np.zeros_like(roi_temp).astype(np.float32), np.zeros_like(roi_temp).astype(np.float32)
                 inun_arr[roi_temp == -32768] = np.nan
                 all_arr[roi_temp == -32768] = np.nan
 
                 for doy_index in range(doy_array.shape[0]):
                     if isinstance(inundation_dc.dc, NDSparseMatrix):
-                        arr_temp = inundation_dc.dc.SM_group[inundation_dc.dc.SM_namelist[doy_index]]
+                        arr_temp = inundation_dc.dc.SM_group[inundation_dc.dc.SM_namelist[doy_index]].toarray()
                     else:
                         arr_temp = inundation_dc.dc[:, :, doy_index].reshape([inundation_dc.dc.shape[0], inundation_dc.dc.shape[1]])
 
