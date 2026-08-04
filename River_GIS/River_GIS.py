@@ -3383,6 +3383,34 @@ class CSprofile(object):
             relation_df.to_csv(relation_output_path + cs_name + '_inun_freq_dem_diff.csv',
                                encoding='GB18030', index=False)
 
+        def _export_cross_section_dem_points(cs_name, distance_values, insitu_values,
+                                             bicubic_values, nearest_values,
+                                             inun_freq_values=None):
+            point_output_path = output_path + 'cross_section_dem_points\\'
+            bf.create_folder(point_output_path)
+            insitu_arr = np.asarray(insitu_values, dtype=np.float64)
+            bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
+            nearest_arr = np.asarray(nearest_values, dtype=np.float64)
+            finite_bicubic = np.isfinite(bicubic_arr)
+            excluded_rsdem_lowest = np.zeros(bicubic_arr.shape, dtype=bool)
+            if np.any(finite_bicubic):
+                lowest_rsdem = np.nanmin(bicubic_arr[finite_bicubic])
+                excluded_rsdem_lowest = finite_bicubic & np.isclose(bicubic_arr, lowest_rsdem)
+
+            point_data = {
+                'distance': distance_values,
+                'insitu_dem': insitu_arr,
+                'bicubic_rsdem': bicubic_arr,
+                'nearest_rsdem': nearest_arr,
+                'bicubic_dem_diff': bicubic_arr - insitu_arr,
+                'nearest_dem_diff': nearest_arr - insitu_arr,
+                'excluded_rsdem_lowest': excluded_rsdem_lowest
+            }
+            if inun_freq_values is not None:
+                point_data['inun_freq'] = inun_freq_values
+            pd.DataFrame(point_data).to_csv(
+                point_output_path + cs_name + '_dem_points.csv', encoding='GB18030', index=False)
+
         # Compare dem
         RS_dem_all = {}
         for _ in range(self.cross_section_geodf.shape[0]):
@@ -3473,6 +3501,9 @@ class CSprofile(object):
                 section_bicubic = [RS_dem_all[cs_name_][pos][1] for pos in range(len(dem_temp))]
                 section_nearest = [RS_dem_all[cs_name_][pos][3] if inun_freq_factor else
                                    RS_dem_all[cs_name_][pos][2] for pos in range(len(dem_temp))]
+                _export_cross_section_dem_points(
+                    cs_name_, insitu_dis, insitu_dem, section_bicubic, section_nearest,
+                    section_inun_freq if inun_freq_factor else None)
                 comparison_insitu, comparison_bicubic, comparison_nearest = \
                     _exclude_lowest_rsdem_points(
                         insitu_dem, section_bicubic, section_nearest)
