@@ -135,8 +135,8 @@ if __name__ == '__main__':
     #     hc.simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_posttgd.TIF', thal1, f'G:\A_Landsat_Floodplain_veg\Water_level_python\Inundation_indicator\\', meta_dic='G:\A_Landsat_Floodplain_veg\Landsat_floodplain_2020_datacube\OSAVI_noninun_curfit_datacube\\floodplain_2020_Phemetric_datacube\\1986\\metadata.json', inun_factor=False)
 
     # Landsat_inun_temp = Landsat_dc('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\Inundation_DT_datacube')
-    # hyspo = Flood_freq_based_hyspometry_method([2003], work_env='G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Annual_refined_dem\\')
-    # hyspo.refine_annual_topography(thal1, Landsat_inun_temp, hc, elevation_map='G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_posttgd.TIF')
+    # cs_annual = CSprofile('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Annual_refined_dem\\')
+    # cs_annual.refine_annual_topography(thal1, Landsat_inun_temp, hc, elevation_map='G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_DT_inundation_frequency_posttgd.TIF')
     #
     # #
     # # # Cross section construction POST-TGD
