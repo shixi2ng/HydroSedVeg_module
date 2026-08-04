@@ -13,7 +13,7 @@ if __name__ == '__main__':
     Landsat_VI_temp = Landsat_dc('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\MNDWI_datacube\\')
     #
     # Landsat_dcs = RS_dcs(Landsat_WI_temp)
-    # Landsat_dcs.inundation_detection('DT', 'MNDWI', 'Landsat', DT_std_fig_construction=False)
+    Landsat_dcs.inundation_detection('DT', 'MNDWI', 'Landsat', DT_std_fig_construction=False)
 
     Landsat_inun_temp = Landsat_dc('G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\Inundation_DT_datacube')
     Landsat_dcs = RS_dcs(Landsat_inun_temp, Landsat_VI_temp)

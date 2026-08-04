@@ -3158,7 +3158,9 @@ class CSprofile(object):
                     inun_freq_factor = True
                 except:
                     raise ValueError('The inun_freq file is problematic!')
-        elif inun_freq is not None:
+        elif inun_freq is None:
+            inun_freq_factor=False
+        else:
             raise TypeError('The inun_freq should be a TIF file')
         else:
             inun_freq_factor = False
@@ -3215,25 +3217,15 @@ class CSprofile(object):
                 return float(interpolator(raster_y, raster_x)[0, 0])
             raise ValueError(f'Unsupported DEM sampling method: {method}')
 
-        def _calculate_error_metrics(insitu_values, raster_values, valid_pos=None):
+        def _calculate_error_metrics(insitu_values, raster_values):
             insitu_arr = np.asarray(insitu_values, dtype=np.float64)
             raster_arr = np.asarray(raster_values, dtype=np.float64)
-            if valid_pos is None:
-                valid_pos = np.isfinite(insitu_arr) & np.isfinite(raster_arr)
+            valid_pos = np.isfinite(insitu_arr) & np.isfinite(raster_arr)
             if not np.any(valid_pos):
                 return 0, np.nan, np.nan, np.nan
             difference = raster_arr[valid_pos] - insitu_arr[valid_pos]
             return (int(np.sum(valid_pos)), np.sqrt(np.mean(difference ** 2)),
                     np.mean(np.abs(difference)), np.mean(difference))
-
-        def _compare_sampling_errors(insitu_values, bicubic_values, nearest_values):
-            insitu_arr = np.asarray(insitu_values, dtype=np.float64)
-            bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
-            nearest_arr = np.asarray(nearest_values, dtype=np.float64)
-            common_valid = (np.isfinite(insitu_arr) & np.isfinite(bicubic_arr) &
-                            np.isfinite(nearest_arr))
-            return (_calculate_error_metrics(insitu_arr, bicubic_arr, common_valid),
-                    _calculate_error_metrics(insitu_arr, nearest_arr, common_valid))
 
         def _preprocess_cross_section_points(dis_list, ele_list):
             dis_arr = np.array(dis_list, dtype=np.float32)

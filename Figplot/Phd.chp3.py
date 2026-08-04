@@ -1622,6 +1622,7 @@ def fig399():
 def fig39():
     # ===== 新增：汇总表用的收集器 & 河段中文名 =====
     summary_rows = []  # 所有河段三个阶段的演替像元数量都丢这里
+    annual_rate_rows = []
 
     reach_name_map = {
         "yz": "宜枝河段",
@@ -1912,6 +1913,56 @@ def fig39():
         trans_csv_path = os.path.join(out_dir, f'Fig3_8_transitions_{reach}.csv')
         df_trans.to_csv(trans_csv_path, index=False, encoding='utf-8-sig')
 
+        def _build_single_step_confusion(
+                y0,
+                y1,
+                tif_dir,
+                reclass_func,
+                classes,
+                class_to_idx,
+                nodata_vals,
+                col_slice=None,
+        ):
+            """构建相邻两年的转移矩阵，并返回相邻两年均有效像元总数。"""
+            n_cls = len(classes)
+            conf_step = np.zeros((n_cls, n_cls), dtype=np.int64)
+
+            def _valid_mask(a):
+                mask = np.ones_like(a, dtype=bool)
+                for nv in nodata_vals:
+                    mask &= (a != nv)
+                return mask
+
+            arrs = []
+            for year_ in (y0, y1):
+                tif_path = os.path.join(tif_dir, f'predict_{year_}.tif')
+                if not os.path.exists(tif_path):
+                    print(f'[WARNING] 缺失年度分类图，已跳过: {tif_path}')
+                    return conf_step, 0
+                ds_ = gdal.Open(tif_path)
+                if ds_ is None:
+                    print(f'[WARNING] 无法读取年度分类图，已跳过: {tif_path}')
+                    return conf_step, 0
+                arr_ = ds_.GetRasterBand(1).ReadAsArray().astype(np.int16)
+                arr_ = reclass_func(arr_)
+                if col_slice is not None:
+                    arr_ = arr_[:, col_slice[0]:col_slice[1]]
+                arrs.append(arr_)
+
+            arr_from, arr_to = arrs
+            mask = _valid_mask(arr_from) & _valid_mask(arr_to)
+            valid_pixel_count = int(np.count_nonzero(mask))
+            if valid_pixel_count == 0:
+                return conf_step, 0
+
+            a = arr_from[mask].ravel()
+            b = arr_to[mask].ravel()
+            for fv, tv in zip(a, b):
+                if (fv in class_to_idx) and (tv in class_to_idx):
+                    conf_step[class_to_idx[fv], class_to_idx[tv]] += 1
+
+            return conf_step, valid_pixel_count
+
         def _build_period_confusion_from_annual(
                 years,
                 tif_dir,
@@ -2081,6 +2132,206 @@ def fig39():
             (1, 3, "湿生植物>>森林用地"),
             (2, 3, "挺水植物>>森林用地"),
         ]
+        def collect_annual_succession_rates(years, tif_dir, reach_cn_name, col_slice):
+            """计算逐年、逐河段、逐演替路径的正向/逆向演替速率。
+
+            速率定义为：该年度转换像元数 / 该河段相邻两年均有效的像元总数 * 100，
+            因为相邻年份间隔为 1 年，所以单位可理解为 %/yr。
+            同时输出面积（km²/yr），30 m 像元面积为 0.0009 km²。
+            """
+            area_per_pixel_km2 = 0.03 * 0.03
+            years = list(years)
+            for y0, y1 in zip(years[:-1], years[1:]):
+                conf_step, valid_pixel_count = _build_single_step_confusion(
+                    y0, y1, tif_dir, reclass, classes, class_to_idx, nodata_vals, col_slice=col_slice
+                )
+                if valid_pixel_count == 0:
+                    continue
+
+                for from_cls, to_cls, trans_name in transition_defs:
+                    if (from_cls not in class_to_idx) or (to_cls not in class_to_idx):
+                        continue
+                    i = class_to_idx[from_cls]
+                    j = class_to_idx[to_cls]
+
+                    for direction, src_cls, dst_cls, count in [
+                        ("正向", from_cls, to_cls, int(conf_step[i, j])),
+                        ("逆向", to_cls, from_cls, int(conf_step[j, i])),
+                    ]:
+                        annual_rate_rows.append({
+                            "reach": reach_cn_name,
+                            "from_year": y0,
+                            "to_year": y1,
+                            "transition": trans_name,
+                            "direction": direction,
+                            "from_class": src_cls,
+                            "to_class": dst_cls,
+                            "pixel_count": count,
+                            "area_km2_per_year": count * area_per_pixel_km2,
+                            "valid_pixel_count": int(valid_pixel_count),
+                            "rate_pct_per_year": count / valid_pixel_count * 100.0,
+                        })
+
+        def _write_annual_succession_rate_tables():
+            """输出逐年演替速率明细表与正/逆向汇总表。"""
+            if not annual_rate_rows:
+                return
+
+            df_annual_sub = pd.DataFrame(annual_rate_rows)
+            df_annual_sub_only = df_annual_sub[df_annual_sub["reach"].isin(["宜枝河段", "荆江河段", "城汉河段", "汉湖河段"])].copy()
+
+            group_cols = ["from_year", "to_year", "transition", "direction", "from_class", "to_class"]
+            df_annual_mid = (
+                df_annual_sub_only
+                .groupby(group_cols, as_index=False)
+                .agg({
+                    "pixel_count": "sum",
+                    "area_km2_per_year": "sum",
+                    "valid_pixel_count": "sum",
+                })
+            )
+            df_annual_mid["rate_pct_per_year"] = (
+                df_annual_mid["pixel_count"] / df_annual_mid["valid_pixel_count"] * 100.0
+            )
+            df_annual_mid["reach"] = "长江中游河段"
+
+            annual_final_df = pd.concat([df_annual_sub_only, df_annual_mid], ignore_index=True)
+            annual_final_df = annual_final_df[[
+                "reach", "from_year", "to_year", "transition", "direction",
+                "from_class", "to_class", "pixel_count", "area_km2_per_year",
+                "valid_pixel_count", "rate_pct_per_year",
+            ]].sort_values(["reach", "from_year", "direction", "from_class", "to_class"])
+
+            annual_csv_path = os.path.join(out_dir, "Annual_succession_rates_all_reaches.csv")
+            annual_final_df.to_csv(annual_csv_path, index=False, encoding="utf-8-sig")
+            print(f"[INFO] 逐年演替速率明细表已输出：{annual_csv_path}")
+
+            annual_summary_df = (
+                annual_final_df
+                .groupby(["reach", "from_year", "to_year", "direction"], as_index=False)
+                .agg({
+                    "pixel_count": "sum",
+                    "area_km2_per_year": "sum",
+                    "valid_pixel_count": "first",
+                })
+            )
+            annual_summary_df["rate_pct_per_year"] = (
+                annual_summary_df["pixel_count"] / annual_summary_df["valid_pixel_count"] * 100.0
+            )
+            annual_summary_df["succession_intensity_pct_per_year"] = annual_summary_df["rate_pct_per_year"]
+            annual_summary_df["succession_intensity_km2_per_year"] = annual_summary_df["area_km2_per_year"]
+
+            annual_summary_path = os.path.join(out_dir, "Annual_succession_rates_summary_by_direction.csv")
+            annual_summary_df.to_csv(annual_summary_path, index=False, encoding="utf-8-sig")
+            print(f"[INFO] 逐年正/逆向演替速率汇总表已输出：{annual_summary_path}")
+
+            intensity_wide_df = annual_summary_df.pivot_table(
+                index=["reach", "from_year", "to_year", "valid_pixel_count"],
+                columns="direction",
+                values=[
+                    "pixel_count",
+                    "succession_intensity_km2_per_year",
+                    "succession_intensity_pct_per_year",
+                ],
+                aggfunc="sum",
+                fill_value=0,
+            )
+            intensity_wide_df.columns = [f"{metric}_{direction}" for metric, direction in intensity_wide_df.columns]
+            intensity_wide_df = intensity_wide_df.reset_index()
+
+            # 保证即使某一方向完全没有转换，也保留正向/逆向强度列，便于后续制表。
+            for col in [
+                "pixel_count_正向",
+                "pixel_count_逆向",
+                "succession_intensity_km2_per_year_正向",
+                "succession_intensity_km2_per_year_逆向",
+                "succession_intensity_pct_per_year_正向",
+                "succession_intensity_pct_per_year_逆向",
+            ]:
+                if col not in intensity_wide_df.columns:
+                    intensity_wide_df[col] = 0
+
+            intensity_wide_df = intensity_wide_df[[
+                "reach",
+                "from_year",
+                "to_year",
+                "valid_pixel_count",
+                "pixel_count_正向",
+                "pixel_count_逆向",
+                "succession_intensity_km2_per_year_正向",
+                "succession_intensity_km2_per_year_逆向",
+                "succession_intensity_pct_per_year_正向",
+                "succession_intensity_pct_per_year_逆向",
+            ]].sort_values(["reach", "from_year"])
+
+            intensity_wide_path = os.path.join(out_dir, "Annual_succession_total_intensity_by_reach.csv")
+            intensity_wide_df.to_csv(intensity_wide_path, index=False, encoding="utf-8-sig")
+            print(f"[INFO] 每个河段逐年正/逆向演替总强度表已输出：{intensity_wide_path}")
+
+            # 输出用户指定格式：year/progressive/retreogressive。
+            # year 使用转换后的年份（例如 1988->1989 记为 1989）；数值使用面积强度 km²/yr。
+            simple_table_dir = os.path.join(out_dir, "Annual_succession_simple_tables")
+            os.makedirs(simple_table_dir, exist_ok=True)
+
+            def _write_simple_progressive_table(df_in, file_name):
+                table = df_in.pivot_table(
+                    index=["reach", "to_year"],
+                    columns="direction",
+                    values="area_km2_per_year",
+                    aggfunc="sum",
+                    fill_value=0.0,
+                ).reset_index()
+                table = table.rename(columns={
+                    "to_year": "year",
+                    "正向": "progressive",
+                    "逆向": "retreogressive",
+                })
+                for col in ["progressive", "retreogressive"]:
+                    if col not in table.columns:
+                        table[col] = 0.0
+                table = table[["reach", "year", "progressive", "retreogressive"]].sort_values(["reach", "year"])
+                out_path = os.path.join(simple_table_dir, file_name)
+                table.to_csv(out_path, index=False, encoding="utf-8-sig")
+                print(f"[INFO] 年度演替强度简表已输出：{out_path}")
+
+                # 同时按河段拆分单独文件，便于直接复制成论文表格。
+                safe_name_map = {
+                    "宜枝河段": "yizhi",
+                    "荆江河段": "jingjiang",
+                    "城汉河段": "chenghan",
+                    "汉湖河段": "hanhu",
+                    "长江中游河段": "middle_yangtze",
+                }
+                stem = os.path.splitext(file_name)[0]
+                for reach_name, df_reach in table.groupby("reach"):
+                    reach_path = os.path.join(simple_table_dir, f"{stem}_{safe_name_map.get(reach_name, reach_name)}.csv")
+                    df_reach[["year", "progressive", "retreogressive"]].to_csv(
+                        reach_path, index=False, encoding="utf-8-sig"
+                    )
+                    print(f"[INFO] 河段年度演替强度简表已输出：{reach_path}")
+
+            _write_simple_progressive_table(annual_final_df, "annual_succession_total_progressive_retreogressive.csv")
+
+            base_class_table_defs = {
+                0: ("bare_floodplain", "裸露洲滩", [(0, 1), (1, 0), (0, 2), (2, 0), (0, 3), (3, 0)]),
+                1: ("herbaceous", "草本植物群落", [(1, 2), (2, 1), (1, 3), (3, 1)]),
+                2: ("emergent", "挺水植物群落", [(2, 3), (3, 2)]),
+            }
+            annual_final_df["pair"] = list(zip(annual_final_df["from_class"], annual_final_df["to_class"]))
+            for _, (class_file_key, class_cn_name, pair_list) in base_class_table_defs.items():
+                class_df = annual_final_df[annual_final_df["pair"].isin(pair_list)].copy()
+                _write_simple_progressive_table(
+                    class_df,
+                    f"annual_succession_{class_file_key}_progressive_retreogressive.csv",
+                )
+                class_df = class_df.drop(columns=["pair"], errors="ignore")
+                class_detail_path = os.path.join(
+                    simple_table_dir,
+                    f"annual_succession_{class_file_key}_transition_detail.csv",
+                )
+                class_df.to_csv(class_detail_path, index=False, encoding="utf-8-sig")
+                print(f"[INFO] {class_cn_name} 年度演替路径明细已输出：{class_detail_path}")
+            annual_final_df = annual_final_df.drop(columns=["pair"], errors="ignore")
 
         def collect_from_conf(conf_mat, period_key, reach_cn_name):
             """从一个阶段的混淆矩阵中，把六类演替的正向/逆向像元数写入 summary_rows。"""
@@ -2121,6 +2372,11 @@ def fig39():
         collect_from_conf(conf_1988_2003, "1988_2003", reach_cn)
         collect_from_conf(conf_2003_2013, "2003_2013", reach_cn)
         collect_from_conf(conf_2013_2023, "2013_2023", reach_cn)
+
+        # 逐年连续计算每个河段的正向/逆向演替速率（1988->1989 ... 2022->2023）
+        collect_annual_succession_rates(range(1988, 2024), ccdc_tif_dir, reach_cn, rangef)
+        _write_annual_succession_rate_tables()
+
 
         # ========== 13. 循环结束后：生成总 CSV，包括四个子河段 + 汇总“长江中游河段” ==========
         if summary_rows:
@@ -3282,11 +3538,251 @@ def fig300():  # 1. CSV 列表
         print(__)
         print(str(a.shape[0]))
 
+def fig39_annual_succession_intensity_plot(
+        simple_table_dir=r'D:\A_PhD_Main_paper\Chap.3\Figure\Fig.3.4\Annual_succession_simple_tables',
+        output_dir=None,
+        reach_name=None,
+        table_files=None,
+):
+    """绘制同一河段逐年正向/逆向演替强度组合点线图，并叠加线性拟合和 95% CI。
+
+    输入表需包含 year、progressive、retreogressive 三列；如果包含 reach 列，
+    可用 reach_name 指定只绘制某一河段。正向演替按 1988-2002、2003-2013、
+    2013-2023 三个阶段分别拟合；逆向演替使用全部年份统一拟合。点线使用灰色并用不同 symbol 区分，正/逆向回归线和 CI 分别使用纯红/纯蓝。
+    """
+    if output_dir is None:
+        output_dir = os.path.join(simple_table_dir, 'plots')
+    os.makedirs(output_dir, exist_ok=True)
+
+    plt.rcParams['font.family'] = ['Times New Roman', 'SimSun']
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rc('font', size=12)
+    plt.rc('axes', linewidth=1)
+
+    if table_files is None:
+        table_files = [
+            os.path.join(simple_table_dir, 'annual_succession_total_progressive_retreogressive.csv'),
+            os.path.join(simple_table_dir, 'annual_succession_bare_floodplain_progressive_retreogressive.csv'),
+            os.path.join(simple_table_dir, 'annual_succession_herbaceous_progressive_retreogressive.csv'),
+            os.path.join(simple_table_dir, 'annual_succession_emergent_progressive_retreogressive.csv'),
+        ]
+        table_files = [p for p in table_files if os.path.exists(p)]
+    else:
+        table_files = [os.path.join(simple_table_dir, f) if not os.path.isabs(f) else f for f in table_files]
+
+    if not table_files:
+        raise RuntimeError(f'未找到逐年演替强度简表：{simple_table_dir}')
+
+    phase_defs = [
+        ('1988-2002', 1988, 2002, '#1b9e77'),
+        ('2003-2013', 2002, 2013, '#d95f02'),
+        ('2013-2023', 2013, 2023, '#7570b3'),
+    ]
+
+    def _safe_filename(name):
+        return re.sub(r'[^0-9A-Za-z_\-\u4e00-\u9fff]+', '_', str(name)).strip('_')
+
+    def _fit_line_with_ci(x, y, x_pred, alpha=0.05):
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        x_pred = np.asarray(x_pred, dtype=float)
+        valid = np.isfinite(x) & np.isfinite(y)
+        x = x[valid]
+        y = y[valid]
+        if x.size < 3 or np.unique(x).size < 2:
+            return None
+        model = sm.OLS(y, sm.add_constant(x)).fit()
+        pred = model.get_prediction(sm.add_constant(x_pred)).summary_frame(alpha=alpha)
+        return {
+            'mean': pred['mean'].to_numpy(dtype=float),
+            'lower': pred['mean_ci_lower'].to_numpy(dtype=float),
+            'upper': pred['mean_ci_upper'].to_numpy(dtype=float),
+            'intercept': float(model.params[0]),
+            'slope': float(model.params[1]),
+            'pvalue': float(model.pvalues[1]),
+            'r2': float(model.rsquared),
+        }
+
+    def _plot_one_direction(df_plot, value_col, direction_cn, fit_mode, out_path):
+        fig, ax = plt.subplots(figsize=(10, 4), dpi=300, tight_layout=True)
+        ax.plot(
+            df_plot['year'], df_plot[value_col], marker='o', markersize=4,
+            linewidth=1.4, color='black', label=direction_cn
+        )
+
+        fit_rows = []
+        if fit_mode == 'progressive':
+            for phase_label, start_year, end_year, color in phase_defs:
+                phase_df = df_plot[(df_plot['year'] >= start_year) & (df_plot['year'] <= end_year)].copy()
+                if phase_df.empty:
+                    continue
+                x_pred = np.linspace(phase_df['year'].min(), phase_df['year'].max(), 100)
+                fit = _fit_line_with_ci(phase_df['year'], phase_df[value_col], x_pred, alpha=0.05)
+                if fit is None:
+                    continue
+                ax.plot(x_pred, fit['mean'], color=color, linewidth=2.0, label=f'{phase_label} fit')
+                ax.fill_between(x_pred, fit['lower'], fit['upper'], color=color, alpha=0.18, linewidth=0)
+                fit_rows.append({
+                    'direction': direction_cn,
+                    'fit_period': phase_label,
+                    'start_year': start_year,
+                    'end_year': end_year,
+                    'slope': fit['slope'],
+                    'pvalue': fit['pvalue'],
+                    'r2': fit['r2'],
+                })
+        else:
+            x_pred = np.linspace(df_plot['year'].min(), df_plot['year'].max(), 200)
+            fit = _fit_line_with_ci(df_plot['year'], df_plot[value_col], x_pred, alpha=0.05)
+            if fit is not None:
+                color = '#2166ac'
+                ax.plot(x_pred, fit['mean'], color=color, linewidth=2.0, label='1988-2023 fit')
+                ax.fill_between(x_pred, fit['lower'], fit['upper'], color=color, alpha=0.18, linewidth=0)
+                fit_rows.append({
+                    'direction': direction_cn,
+                    'fit_period': '1988-2023',
+                    'start_year': int(df_plot['year'].min()),
+                    'end_year': int(df_plot['year'].max()),
+                    'slope': fit['slope'],
+                    'pvalue': fit['pvalue'],
+                    'r2': fit['r2'],
+                })
+
+        ax.set_xlabel('年份')
+        ax.set_ylabel('演替强度 / km²·yr⁻¹')
+        ax.set_xlim(1988,2023)
+        ax.set_xlabel([1988,1993, 1998,2003,2008,2013,2018,2023], ['1988', '1993', '1998', '2003', '2008', '2013', '2018', '2023'])
+        ax.set_ylim(0, 35)
+        ax.grid(axis='y', linestyle='--', alpha=0.35)
+        # ax.legend(frameon=False, fontsize=9)
+
+        plt.savefig(out_path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+        print(f'[INFO] 逐年{direction_cn}演替强度点线图已输出：{out_path}')
+        return fit_rows
+
+    def _plot_combined_directions(df_plot, out_path):
+        """同一河段正向和逆向演替强度放在同一张图上。"""
+        fig, ax = plt.subplots(figsize=(10,4), dpi=300)
+        line_color = '#6f6f6f'
+        progressive_color = '#ff0000'  # 纯红：正向回归线和 95% CI
+        retreogressive_color = '#0000ff'  # 纯蓝：逆向回归线和 95% CI
+        ci_alpha = 0.1
+
+        ax.plot(
+            df_plot['year'], df_plot['progressive'], marker='o', markersize=7.4,
+            linestyle='--', linewidth=1.5, color=(0.5, 0, 0), markerfacecolor='white',
+            markeredgecolor=(0.5, 0, 0), label='正向演替强度'
+        )
+        ax.plot(
+            df_plot['year'], df_plot['retreogressive'], marker='^', markersize=7.4,
+            linestyle='-', linewidth=1.5, color=(0., 0., 0.5), markerfacecolor='white',
+            markeredgecolor=(0., 0., 0.5), label='逆向演替强度'
+        )
+
+        fit_rows = []
+        for phase_label, start_year, end_year, _ in phase_defs:
+            phase_df = df_plot[(df_plot['year'] >= start_year) & (df_plot['year'] <= end_year)].copy()
+            if phase_df.empty:
+                continue
+            x_pred = np.linspace(phase_df['year'].min(), phase_df['year'].max(), 100)
+            fit = _fit_line_with_ci(phase_df['year'], phase_df['progressive'], x_pred, alpha=0.05)
+            if fit is None:
+                continue
+            ax.plot(x_pred, fit['mean'], color=progressive_color, linewidth=2.5,)
+            ax.fill_between(x_pred, fit['lower'], fit['upper'], color=progressive_color, alpha=ci_alpha, linewidth=1)
+            fit_rows.append({
+                'direction': '正向',
+                'fit_period': phase_label,
+                'start_year': start_year,
+                'end_year': end_year,
+                'slope': fit['slope'],
+                'intercept': fit['intercept'],
+                'pvalue': fit['pvalue'],
+                'r2': fit['r2'],
+            })
+
+        x_pred = np.linspace(df_plot['year'].min(), df_plot['year'].max(), 200)
+        fit = _fit_line_with_ci(df_plot['year'], df_plot['retreogressive'], x_pred, alpha=0.05)
+        if fit is not None:
+            ax.plot(x_pred, fit['mean'], color=retreogressive_color, linewidth=2.5)
+            ax.fill_between(x_pred, fit['lower'], fit['upper'], color=retreogressive_color, alpha=ci_alpha, linewidth=1)
+            fit_rows.append({
+                'direction': '逆向',
+                'fit_period': '1988-2023',
+                'start_year': int(df_plot['year'].min()),
+                'end_year': int(df_plot['year'].max()),
+                'slope': fit['slope'],
+                'intercept':fit['intercept'],
+                'pvalue': fit['pvalue'],
+                'r2': fit['r2'],
+            })
+
+        ax.set_xlabel('年份')
+        ax.set_ylabel('演替强度 / km²·a⁻¹')
+        ax.set_xlim(1989, 2023)
+        ax.set_ylim(0, 35)
+        ax.set_xticks([1989, 1993, 1998, 2003, 2008, 2013, 2018, 2023])
+        ax.set_xticklabels(['1989', '1993', '1998', '2003', '2008', '2013', '2018', '2023'], fontsize=11)
+        ax.grid(axis='y', linestyle='--', alpha=0.35)
+        ax.legend(frameon=False, fontsize=13, ncol=2, )
+        plt.tight_layout()
+        plt.savefig(out_path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+        print(f'[INFO] 逐年正/逆向演替强度组合图已输出：{out_path}')
+        return fit_rows
+
+    all_fit_rows = []
+    for table_path in table_files:
+        df = pd.read_csv(table_path)
+        required_cols = {'year', 'progressive', 'retreogressive'}
+        missing_cols = required_cols - set(df.columns)
+        if missing_cols:
+            print(f'[WARNING] 表格缺少必要列 {missing_cols}，已跳过：{table_path}')
+            continue
+        if 'reach' in df.columns and reach_name is not None:
+            df = df[df['reach'] == reach_name].copy()
+        if df.empty:
+            print(f'[WARNING] 表格无可绘制数据，已跳过：{table_path}')
+            continue
+
+        group_cols = ['reach'] if 'reach' in df.columns else [None]
+        grouped = df.groupby(group_cols[0]) if group_cols[0] is not None else [(None, df)]
+        for reach_value, df_reach in grouped:
+            df_reach = df_reach.copy()
+            df_reach['year'] = pd.to_numeric(df_reach['year'], errors='coerce')
+            df_reach['progressive'] = pd.to_numeric(df_reach['progressive'], errors='coerce')
+            df_reach['retreogressive'] = pd.to_numeric(df_reach['retreogressive'], errors='coerce')
+            df_reach = df_reach.dropna(subset=['year', 'progressive', 'retreogressive']).sort_values('year')
+            if df_reach.empty:
+                continue
+
+            table_stem = os.path.splitext(os.path.basename(table_path))[0]
+            reach_stem = _safe_filename(reach_value) if reach_value is not None else 'all'
+            prefix = f'{table_stem}_{reach_stem}'
+
+            combined_path = os.path.join(output_dir, f'{prefix}_progressive_retreogressive_fit_95ci.png')
+            fit_rows = _plot_combined_directions(df_reach, combined_path)
+
+            for row in fit_rows:
+                row.update({
+                    'source_table': os.path.basename(table_path),
+                    'reach': reach_value if reach_value is not None else '',
+                })
+                all_fit_rows.append(row)
+
+    if all_fit_rows:
+        fit_df = pd.DataFrame(all_fit_rows)
+        fit_csv_path = os.path.join(output_dir, 'annual_succession_intensity_fit_summary.csv')
+        fit_df.to_csv(fit_csv_path, index=False, encoding='utf-8-sig')
+        print(f'[INFO] 逐年演替强度拟合统计表已输出：{fit_csv_path}')
+        return fit_df
+    return pd.DataFrame()
 
 
 if __name__ == '__main__':
     # fig3_1_segments('G:\A_GEDI_Floodplain_vegh\Veg_map\\CCDC_pre_new', 'D:\A_PhD_Main_paper\Chap.3\Figure_\Fig.3.1')
-    fig38()
+    fig39_annual_succession_intensity_plot()
     # fig32_sup('D:\B_papers_patents\RAC_三峡工程运用影响下长江中游洲滩植物演替动态与规律研究\Fig&Tab\Fig6\\')
     # fig32('D:\B_papers_patents\RAC_三峡工程运用影响下长江中游洲滩植物演替动态与规律研究\Fig&Tab\Fig6\\')
     # fig39()
