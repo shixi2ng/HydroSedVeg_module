@@ -3166,6 +3166,8 @@ class CSprofile(object):
         # Generate FIGURE para
         insitu_dem_all, rs_dem_all, nearest_dem_all, section_name_all, rs_dis_all = [], [], [], [], []
         dem_diff_all, nearest_dem_diff_all, interpolation_error_rows = [], [], []
+        comparison_insitu_all, comparison_bicubic_all, comparison_nearest_all = [], [], []
+        excluded_rsdem_lowest_count_all = 0
         inun_freq_all = [] if inun_freq_factor else None
         plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
         plt.rc('font', size=24)
@@ -3234,6 +3236,18 @@ class CSprofile(object):
             common_insitu = insitu_arr[common_valid]
             return (_calculate_error_metrics(common_insitu, bicubic_arr[common_valid]),
                     _calculate_error_metrics(common_insitu, nearest_arr[common_valid]))
+
+        def _exclude_lowest_rsdem_points(insitu_values, bicubic_values, nearest_values):
+            insitu_arr = np.asarray(insitu_values, dtype=np.float64)
+            bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
+            nearest_arr = np.asarray(nearest_values, dtype=np.float64)
+            finite_bicubic = np.isfinite(bicubic_arr)
+            if not np.any(finite_bicubic):
+                return insitu_arr, bicubic_arr, nearest_arr
+            lowest_rsdem = np.nanmin(bicubic_arr[finite_bicubic])
+            retained_pos = ~(finite_bicubic & np.isclose(bicubic_arr, lowest_rsdem))
+            return (insitu_arr[retained_pos], bicubic_arr[retained_pos],
+                    nearest_arr[retained_pos])
 
         def _preprocess_cross_section_points(dis_list, ele_list):
             dis_arr = np.array(dis_list, dtype=np.float32)
@@ -3459,15 +3473,25 @@ class CSprofile(object):
                 section_bicubic = [RS_dem_all[cs_name_][pos][1] for pos in range(len(dem_temp))]
                 section_nearest = [RS_dem_all[cs_name_][pos][3] if inun_freq_factor else
                                    RS_dem_all[cs_name_][pos][2] for pos in range(len(dem_temp))]
+                comparison_insitu, comparison_bicubic, comparison_nearest = \
+                    _exclude_lowest_rsdem_points(
+                        insitu_dem, section_bicubic, section_nearest)
+                excluded_rsdem_lowest_count = len(insitu_dem) - comparison_insitu.shape[0]
+                excluded_rsdem_lowest_count_all += excluded_rsdem_lowest_count
                 bicubic_metrics, nearest_metrics = _compare_sampling_errors(
-                    insitu_dem, section_bicubic, section_nearest)
+                    comparison_insitu, comparison_bicubic, comparison_nearest)
+                comparison_insitu_all.extend(comparison_insitu.tolist())
+                comparison_bicubic_all.extend(comparison_bicubic.tolist())
+                comparison_nearest_all.extend(comparison_nearest.tolist())
                 bicubic_count, bicubic_rmse, bicubic_mae, bicubic_bias = bicubic_metrics
                 nearest_count, nearest_rmse, nearest_mae, nearest_bias = nearest_metrics
                 interpolation_error_rows.extend([
                     {'csname': cs_name_, 'method': 'bicubic', 'valid_count': bicubic_count,
-                     'rmse': bicubic_rmse, 'mae': bicubic_mae, 'bias': bicubic_bias},
+                     'excluded_rsdem_lowest_count': excluded_rsdem_lowest_count, 'rmse': bicubic_rmse,
+                     'mae': bicubic_mae, 'bias': bicubic_bias},
                     {'csname': cs_name_, 'method': 'nearest', 'valid_count': nearest_count,
-                     'rmse': nearest_rmse, 'mae': nearest_mae, 'bias': nearest_bias}
+                     'excluded_rsdem_lowest_count': excluded_rsdem_lowest_count, 'rmse': nearest_rmse,
+                     'mae': nearest_mae, 'bias': nearest_bias}
                 ])
                 plt.savefig(output_path + cs_name_ + '.png', dpi=500)
                 _plot_wl_width_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
@@ -3479,14 +3503,16 @@ class CSprofile(object):
                 ax_temp = None
 
         bicubic_metrics, nearest_metrics = _compare_sampling_errors(
-            insitu_dem_all, rs_dem_all, nearest_dem_all)
+            comparison_insitu_all, comparison_bicubic_all, comparison_nearest_all)
         bicubic_count, bicubic_rmse, bicubic_mae, bicubic_bias = bicubic_metrics
         nearest_count, nearest_rmse, nearest_mae, nearest_bias = nearest_metrics
         interpolation_error_rows.extend([
             {'csname': 'Overall', 'method': 'bicubic', 'valid_count': bicubic_count,
-             'rmse': bicubic_rmse, 'mae': bicubic_mae, 'bias': bicubic_bias},
+             'excluded_rsdem_lowest_count': excluded_rsdem_lowest_count_all, 'rmse': bicubic_rmse,
+             'mae': bicubic_mae, 'bias': bicubic_bias},
             {'csname': 'Overall', 'method': 'nearest', 'valid_count': nearest_count,
-             'rmse': nearest_rmse, 'mae': nearest_mae, 'bias': nearest_bias}
+             'excluded_rsdem_lowest_count': excluded_rsdem_lowest_count_all, 'rmse': nearest_rmse,
+             'mae': nearest_mae, 'bias': nearest_bias}
         ])
         pd.DataFrame(interpolation_error_rows).to_csv(
             output_path + 'interpolation_error_comparison.csv', encoding='GB18030', index=False)
