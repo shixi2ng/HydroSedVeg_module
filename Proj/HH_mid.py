@@ -1,6 +1,6 @@
 from RSDatacube.RSdc import *
 from Sentinel2_toolbox.Sentinel_Download import Queried_Sentinel_ds_ODATA
-from Sentinel2_toolbox.Sentinel_main_V2 import Sentinel2_ds
+from Sentinel2_toolbox.Sentinel_main_V2 import Sentinel2_ds, Sentinel2_dc
 
 
 if __name__ == '__main__':
@@ -17,11 +17,15 @@ if __name__ == '__main__':
     filepath = 'D:\\A_MYR_Sentinel2\\Original_zipfile\\'
     s2_ds_temp = Sentinel2_ds(filepath)
     s2_ds_temp.construct_metadata()
-    s2_ds_temp.mp_subset(['all_band', 'OSAVI_20m', 'NDVI_20m', 'MNDWI'], ROI='G:\A_Landsat_Floodplain_veg\ROI_map\\floodplain_2020.shp',
+    s2_ds_temp.sequenced_subset(['all_band', 'OSAVI_20m', 'NDVI_20m', 'MNDWI'], ROI='G:\A_Landsat_Floodplain_veg\ROI_map\\floodplain_2020.shp',
                          ROI_name='MYR', cloud_removal_strategy='QI_all_cloud', size_control_factor=True, combine_band_factor=False)
+    # # s2_ds_temp.seq_ds2sdc(['OSAVI_20m', 'NDVI_20m', 'MNDWI'], inherit_from_logfile=True, remove_nan_layer=True)
+    #
+    # s2_ds_temp.mp_mosaic2seqtif([ 'OSAVI_20m', 'NDVI_20m', 'MNDWI'], inherit_from_logfile=True)
+    #
     # s2_ds_temp.seq_ds2sdc(['OSAVI_20m', 'NDVI_20m', 'MNDWI'], inherit_from_logfile=True, remove_nan_layer=True)
+    # s2_ds_temp._sdc_consistency_check(['OSAVI_20m', 'NDVI_20m', 'MNDWI'], inherit_from_logfile=True)
 
-    s2_ds_temp.mp_mosaic2seqtif([ 'OSAVI_20m', 'NDVI_20m', 'MNDWI'], inherit_from_logfile=True)
-
-    s2_ds_temp.seq_ds2sdc(['OSAVI_20m', 'NDVI_20m', 'MNDWI'], inherit_from_logfile=True, remove_nan_layer=True)
-    s2_ds_temp._sdc_consistency_check(['OSAVI_20m', 'NDVI_20m', 'MNDWI'], inherit_from_logfile=True)
+    sentinel_MNDWVI_temp = Sentinel2_dc('D:\A_MYR_Sentinel2\Sentinel2_L2A_Output\Sentinel2_MYR_datacube\\MNDWI_sequenced_datacube\\')
+    sentinel_dcs = RS_dcs(sentinel_MNDWVI_temp)
+    sentinel_dcs.inundation_detection('static_wi_thr', 'MNDWI', 'Sentinel2', static_wi_threshold=0.09)

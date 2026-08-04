@@ -1,3 +1,5 @@
+import traceback
+
 import basic_function
 from NDsm import NDSparseMatrix
 import scipy.sparse as sm
@@ -455,20 +457,24 @@ def assign_wl_status(wl_arr: np.ndarray,  wl: float):
 
 def mp_static_wi_detection(dc: NDSparseMatrix, sz_f, zoffset, nodata, thr):
 
-    inundation_arr_list = []
-    name_list = []
-    for z_temp in range(len(dc.SM_namelist)):
-        inundation_array = dc.SM_group[dc.SM_namelist[z_temp]]
-        dtype_temp = type(inundation_array)
+    try:
+        inundation_arr_list = []
+        name_list = []
+        for z_temp in range(len(dc.SM_namelist)):
+            inundation_array = dc.SM_group[dc.SM_namelist[z_temp]]
+            dtype_temp = type(inundation_array)
 
-        inundation_array = invert_data(inundation_array, sz_f, zoffset, nodata)
-        inundation_array[inundation_array >= thr] = 2
-        inundation_array[inundation_array < thr] = 1
-        inundation_array[np.isnan(inundation_array)] = 0
-        inundation_array = inundation_array.astype(np.byte)
-        inundation_arr_list.append(dtype_temp(inundation_array))
-        name_list.append(dc.SM_namelist[z_temp])
-    return inundation_arr_list, name_list
+            inundation_array = invert_data(inundation_array, sz_f, zoffset, nodata)
+            inundation_array[inundation_array >= thr] = 2
+            inundation_array[inundation_array < thr] = 1
+            inundation_array[np.isnan(inundation_array)] = 0
+            inundation_array = inundation_array.astype(np.byte)
+            inundation_arr_list.append(dtype_temp(inundation_array))
+            name_list.append(dc.SM_namelist[z_temp])
+        return inundation_arr_list, name_list
+    except:
+        print(traceback.format_exc())
+
 
 
 def invert_data(data, size_control, offset_value, nodata_value, original_dtype: bool = False):
