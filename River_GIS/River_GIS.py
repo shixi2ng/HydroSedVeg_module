@@ -163,7 +163,7 @@ class HydroStationDS (object):
                     tribu = self.hydrostation_metadata_df[self.hydrostation_metadata_df['hydrostation_name'] == station_name]['tributary_indicator'].values[0]
 
                 # Check if the metadata is under the correct type
-                if isinstance(water_level_offset, (np.float32, np.float64)):
+                if isinstance(water_level_offset, (np.float32, np.float64)) or water_level_offset == 0:
                     if np.isnan(water_level_offset):
                         water_level_offset = np.nan
                     else:
@@ -2092,155 +2092,6 @@ class Flood_freq_based_hyspometry_method(object):
         #     year_m = ndsm(*matrix_list, SM_namelist=doy_list)
         #     year_m.save(thalweg_temp.work_env + f'yearly_wl\\{str(year)}\\')
 
-    def refine_annual_topography(self, thalweg_temp, inun_dc: Landsat_dc, hydro_dc: HydroDC, elevation_map: str = None):
-
-        if self.work_env is None:
-            self.work_env = thalweg_temp.work_env
-
-        # Get the elevation map
-        if self.ref_ele_map is None and elevation_map is None:
-            raise IOError('Please input the elevation map before refinement!')
-        elif elevation_map is not None:
-            try:
-                ele_ds = gdal.Open(elevation_map)
-                ele_arr = ele_ds.GetRasterBand(1).ReadAsArray()
-            except:
-                print(traceback.format_exc())
-                raise TypeError('Please mention the elevation map is not correctly imported!')
-        else:
-            try:
-                ele_ds = gdal.Open(self.ref_ele_map)
-                ele_arr = ele_ds.GetRasterBand(1).ReadAsArray()
-            except:
-                print(traceback.format_exc())
-                raise TypeError('Please mention the elevation map is not correctly imported!')
-
-        # thalweg extraction
-        if thalweg_temp.smoothed_Thalweg is None:
-            linestr = thalweg_temp.smoothed_Thalweg
-        else:
-            linestr = thalweg_temp.Thalweg_Linestring
-
-        # Check the year
-        if hydro_dc.year not in self.year_list:
-            raise Exception('Please input the hydro datacube under right year!')
-        elif hydro_dc.year not in np.unique(np.floor(np.array(inun_dc.sdc_doylist)/10000).astype(np.int32)):
-            raise Exception('Please input the inundation dc under right year!')
-
-        boundary_wl = np.zeros_like(ele_arr) * np.nan
-        inundation_arr = np.zeros_like(ele_arr)
-        for _ in inun_dc.sdc_doylist:
-            if int(np.floor(_/10000)) == hydro_dc.year:
-
-                # Retrieve the flood inundation map
-                inun_arr = inun_dc.dc[:, :, inun_dc.sdc_doylist.index(_)]
-                inun_arr_output = copy.deepcopy(inun_arr)
-                inun_arr_output[inun_arr != 2] = 0
-                inun_arr_output[inun_arr == 2] = 1
-                inundation_arr = np.logical_or(inundation_arr, inun_arr_output)
-                bf.create_folder(f'{self.work_env}inundation_temp\\')
-                bf.write_raster(ele_ds, inun_arr_output, f'{self.work_env}inundation_temp\\', str(_) + '.tif', raster_datatype=gdal.GDT_Byte)
-
-                src_temp = rasterio.open(f'{self.work_env}inundation_temp\\' + str(_) + '.tif')
-                shp_dic = ({'properties': {'raster_val': int(v)}, 'geometry': s} for i, (s, v) in
-                           enumerate(rasterio.features.shapes(inun_arr_output, connectivity=8, transform=src_temp.transform)) if
-                           ~np.isnan(v))
-                meta = src_temp.meta.copy()
-                meta.update(compress='lzw')
-
-                # Extract the flood inundation area (remove depressions)
-                shp_list = list(shp_dic)
-                nw_shp_list = []
-                shp_file = gp.GeoDataFrame.from_features(shp_list)
-                for __ in range(shp_file.shape[0]):
-                    if shp_file['raster_val'][__] == 1:
-                        if linestr.intersects(shp_file['geometry'][__]):
-                            nw_shp_list.append(shp_list[__])
-                nw_shp_file = gp.GeoDataFrame.from_features(nw_shp_list)
-
-                bf.create_folder(f'{self.work_env}inundation_final\\')
-                if os.path.exists(f'{self.work_env}inundation_final\\{str(_)}.tif'):
-                    os.remove(f'{self.work_env}inundation_final\\{str(_)}.tif')
-
-                with rasterio.open(f'{self.work_env}inundation_final\\{str(_)}.tif', 'w+', **meta) as out:
-                    out_arr = out.read(1)
-                    out_arr[inun_arr == 0] = 0
-                    # this is where we create a generator of geom, value pairs to use in rasterizing
-                    shapes = ((geom, value) for geom, value in zip(nw_shp_file.geometry, nw_shp_file.raster_val)) if nw_shp_file.shape[0] != 0 else None
-                    burned = rasterio.features.rasterize(shapes=shapes, fill=0, out=out_arr, transform=src_temp.transform) if shapes is not None else out_arr
-                    out.write_band(1, burned)
-
-                # Get the boundary pixel
-                ds_temp = gdal.Open(f'{self.work_env}inundation_final\\{str(_)}.tif')
-                arr_temp = ds_temp.GetRasterBand(1).ReadAsArray()
-                arr_temp[inun_arr == 1] = 0
-                pos = np.argwhere(arr_temp == 1)
-
-                # Get the water level map
-                doy = bf.date2doy(_)
-                if isinstance(hydro_dc.hydrodatacube, NDSparseMatrix):
-                    hydro = hydro_dc.hydrodatacube.SM_group[doy].toarray()
-                else:
-                    pass
-
-                # Get the boundary water level
-                if pos.shape[0] != 0:
-                    for __ in pos:
-                        dc_temp = inun_arr[__[0] - 1: __[0] + 2, __[1] - 1: __[1] + 2]
-
-                        if 1 in dc_temp:
-                            wl_inundated_list, wl_noninun_list = [], []
-                            for ___ in inun_dc.sdc_doylist:
-                                if int(np.floor(___ / 10000)) == hydro_dc.year:
-                                    doy_t = bf.date2doy(___)
-                                    if inun_dc.dc[__[0], __[1], inun_dc.sdc_doylist.index(___)] == 2:
-                                        wl_inundated_list.append(hydro_dc.hydrodatacube[int(__[0]), int(__[1]), hydro_dc.hydrodatacube.SM_namelist.index(doy_t)])
-                                    elif inun_dc.dc[__[0], __[1], inun_dc.sdc_doylist.index(___)] == 1:
-                                        wl_noninun_list.append(hydro_dc.hydrodatacube[__[0], __[1], hydro_dc.hydrodatacube.SM_namelist.index(doy_t)])
-
-                            wl_noninun_list = np.array(wl_noninun_list)
-                            if wl_noninun_list.shape[0] == 0 or np.sum(wl_noninun_list > hydro[__[0], __[1]]) / wl_noninun_list.shape[0] > 0.1:
-                                pass
-                            else:
-                                if np.isnan(boundary_wl[__[0], __[1]]):
-                                    boundary_wl[__[0], __[1]] = hydro[__[0], __[1]]
-                                else:
-                                    boundary_wl[__[0], __[1]] = min(hydro[__[0], __[1]], boundary_wl[__[0], __[1]])
-
-        bias_arr = boundary_wl - ele_arr
-        bf.write_raster(ele_ds, boundary_wl, self.work_env, f'{str(hydro_dc.year)}_wl_boundary.tif', nodatavalue=np.nan)
-        bf.write_raster(ele_ds, bias_arr, self.work_env, f'{str(hydro_dc.year)}_bias.tif', nodatavalue=np.nan)
-
-        with rasterio.open(self.work_env + f'{str(hydro_dc.year)}_bias.tif') as raster:
-            # Read the specific band
-            band = raster.read(1)  # assuming you're interested in the first band
-
-            # Coordinate transformation
-            transform = raster.transform
-
-            # Extract points, here assuming we want all non-zero or non-nodata values
-            rows, cols = np.where(band != raster.nodata) if ~np.isnan(raster.nodata) else np.where(~np.isnan(band))
-            points = [transform * (col, row) for col, row in zip(cols, rows)]
-            values = band[rows, cols]  # The corresponding raster values
-
-            # Create geospatial points
-            geometries = [Point(xy) for xy in points]
-            gdf = gp.GeoDataFrame({'geometry': geometries, 'Raster Value': values})
-
-            # Set the coordinate reference system (CRS) to the raster's CRS
-            gdf.crs = raster.crs
-
-            # Save to a Shapefile
-            gdf.to_file(self.work_env + f'{str(hydro_dc.year)}_bias.shp')
-            # Interpolate the bias
-            # Method 1 Kriging
-
-            # Method 2 Cubic interpolation
-
-            # Method 3 Linear interpolation
-
-            # Method 4
-
 
 class CSprofile(object):
 
@@ -3043,6 +2894,7 @@ class CSprofile(object):
                 right_bank = [self.cross_section_geodf['geometry'][_].coords[-1][0], self.cross_section_geodf['geometry'][_].coords[-1][1]]
                 dis = np.sqrt((right_bank[0] - left_bank[0]) ** 2 + (right_bank[1] - left_bank[1]) ** 2)
                 dem_arr = np.array(self.cross_section_geodf['cs_dem'][_])
+                dem_arr = dem_arr.astype(np.float64)
                 if dem_arr[0, 0] < 0:
                     dis_minus = dem_arr[-1, 0] - dem_arr[0, 0]
                     dis_without_minus = dem_arr[-1, 0]
@@ -3114,7 +2966,11 @@ class CSprofile(object):
                         gdal.Warp('/vsimem/temp1.TIF', ds_temp, )
                         ds_temp = gdal.Open('/vsimem/temp1.TIF')
                     [ul_x, x_res, xt, ul_y, yt, y_res] = ds_temp.GetGeoTransform()
-                    arr = ds_temp.GetRasterBand(1).ReadAsArray()
+                    dem_band = ds_temp.GetRasterBand(1)
+                    arr = dem_band.ReadAsArray().astype(np.float64)
+                    dem_nodata = dem_band.GetNoDataValue()
+                    if dem_nodata is not None:
+                        arr[arr == dem_nodata] = np.nan
                 except:
                     raise ValueError('The dem tif file is problematic!')
         else:
@@ -3131,11 +2987,27 @@ class CSprofile(object):
                     if int(srs_temp.split(':')[-1]) != int(self.crs.split(':')[-1]):
                         gdal.Warp('/vsimem/temp1.TIF', ds_temp, )
                         ds_temp = gdal.Open('/vsimem/temp1.TIF')
-                    [ul_x, x_res, xt, ul_y, yt, y_res] = ds_temp.GetGeoTransform()
-                    inun_freq_arr = ds_temp.GetRasterBand(1).ReadAsArray()
+                    [inun_ul_x, inun_x_res, inun_xt, inun_ul_y, inun_yt, inun_y_res] = ds_temp.GetGeoTransform()
+                    inun_freq_band = ds_temp.GetRasterBand(1)
+                    inun_freq_arr = inun_freq_band.ReadAsArray().astype(np.float64)
+                    inun_freq_nodata = inun_freq_band.GetNoDataValue()
+                    if inun_freq_nodata is not None:
+                        inun_freq_arr[inun_freq_arr == inun_freq_nodata] = np.nan
+                    finite_inun_freq = inun_freq_arr[np.isfinite(inun_freq_arr)]
+                    if finite_inun_freq.size == 0:
+                        raise ValueError('The inun_freq file contains no valid value!')
+                    if np.nanmax(finite_inun_freq) <= 1:
+                        inun_freq_min, inun_freq_max = 0.02, 0.98
+                    else:
+                        inun_freq_min, inun_freq_max = 2, 98
+                    invalid_inun_freq = ((inun_freq_arr < inun_freq_min) |
+                                         (inun_freq_arr > inun_freq_max))
+                    inun_freq_arr[invalid_inun_freq] = np.nan
                     inun_freq_factor = True
                 except:
                     raise ValueError('The inun_freq file is problematic!')
+        elif inun_freq is None:
+            inun_freq_factor=False
         else:
             raise TypeError('The inun_freq should be a TIF file')
 
@@ -3147,6 +3019,159 @@ class CSprofile(object):
         plt.rc('axes', linewidth=2)
         output_path = self.work_env + 'output_Fig\\' + dem_tif.split('\\')[-1].split('.')[0] + '\\' if diff_ele is not True else self.work_env + 'output_Fig\\' + dem_tif.split('\\')[-1].split('.')[0] + '_diff_ele\\'
         bf.create_folder(output_path)
+
+        def _idw_interpolate(raster, pixel_x, pixel_y, search_radius=3):
+            center_x, center_y = int(np.floor(pixel_x)), int(np.floor(pixel_y))
+            weighted_value, weight_sum = 0.0, 0.0
+            for row in range(max(0, center_y - search_radius),
+                             min(raster.shape[0], center_y + search_radius + 1)):
+                for column in range(max(0, center_x - search_radius),
+                                    min(raster.shape[1], center_x + search_radius + 1)):
+                    value = raster[row, column]
+                    if not np.isfinite(value):
+                        continue
+                    distance = distance_between_2points(
+                        [pixel_x, pixel_y], [column + 0.5, row + 0.5])
+                    if distance == 0:
+                        return float(value)
+                    weight = 1 / distance
+                    weighted_value += value * weight
+                    weight_sum += weight
+            return weighted_value / weight_sum if weight_sum > 0 else np.nan
+
+        def _preprocess_cross_section_points(dis_list, ele_list):
+            dis_arr = np.array(dis_list, dtype=np.float32)
+            ele_arr = np.array(ele_list, dtype=np.float32)
+            valid_pos = ~np.isnan(dis_arr) & ~np.isnan(ele_arr)
+            dis_arr = dis_arr[valid_pos]
+            ele_arr = ele_arr[valid_pos]
+            if dis_arr.shape[0] < 2:
+                return None, None
+
+            sort_pos = np.argsort(dis_arr)
+            return dis_arr[sort_pos], ele_arr[sort_pos]
+
+        def _extract_wl_width_points(dis_list, ele_list):
+            dis_arr, ele_arr = _preprocess_cross_section_points(dis_list, ele_list)
+            if dis_arr is None:
+                return [], []
+
+            wl_list = ele_arr
+            river_width_list = []
+            for wl_temp in wl_list:
+                inundated_dis = []
+                for pos_temp in range(dis_arr.shape[0] - 1):
+                    st_dis, ed_dis = dis_arr[pos_temp], dis_arr[pos_temp + 1]
+                    st_ele, ed_ele = ele_arr[pos_temp], ele_arr[pos_temp + 1]
+                    if st_ele <= wl_temp:
+                        inundated_dis.append(st_dis)
+                    if (st_ele - wl_temp) * (ed_ele - wl_temp) < 0:
+                        ratio = (wl_temp - st_ele) / (ed_ele - st_ele)
+                        inundated_dis.append(st_dis + ratio * (ed_dis - st_dis))
+                if ele_arr[-1] <= wl_temp:
+                    inundated_dis.append(dis_arr[-1])
+
+                if len(inundated_dis) >= 2:
+                    river_width_list.append(max(inundated_dis) - min(inundated_dis))
+                else:
+                    river_width_list.append(0)
+
+            return wl_list.tolist(), river_width_list
+
+        def _extract_wl_area_points(dis_list, ele_list):
+            dis_arr, ele_arr = _preprocess_cross_section_points(dis_list, ele_list)
+            if dis_arr is None:
+                return [], []
+
+            wl_list = ele_arr
+            flow_area_list = []
+            for wl_temp in wl_list:
+                flow_area_temp = 0
+                for pos_temp in range(dis_arr.shape[0] - 1):
+                    st_dis, ed_dis = dis_arr[pos_temp], dis_arr[pos_temp + 1]
+                    st_depth = wl_temp - ele_arr[pos_temp]
+                    ed_depth = wl_temp - ele_arr[pos_temp + 1]
+                    segment_width = ed_dis - st_dis
+                    if st_depth > 0 and ed_depth > 0:
+                        flow_area_temp += (st_depth + ed_depth) * segment_width / 2
+                    elif st_depth > 0 or ed_depth > 0:
+                        wet_depth = max(st_depth, ed_depth)
+                        dry_depth = min(st_depth, ed_depth)
+                        wet_width = segment_width * wet_depth / (wet_depth - dry_depth)
+                        flow_area_temp += wet_depth * wet_width / 2
+                flow_area_list.append(flow_area_temp)
+
+            return wl_list.tolist(), flow_area_list
+
+        def _plot_wl_width_relation(cs_name, insitu_dis, insitu_dem, rs_dis=None, rs_dem=None):
+            relation_output_path = output_path + 'wl_width_relation\\'
+            bf.create_folder(relation_output_path)
+            insitu_wl, insitu_width = _extract_wl_width_points(insitu_dis, insitu_dem)
+            relation_df = pd.DataFrame({'insitu_wl': insitu_wl, 'insitu_width': insitu_width})
+
+            fig_width_temp, ax_width_temp = plt.subplots(figsize=(8, 6), constrained_layout=True)
+            ax_width_temp.scatter(insitu_width, insitu_wl, s=8 ** 2, color='none', edgecolor=(0, 1, 0), linewidth=2, marker='o', label='In-situ DEM')
+
+            if rs_dis is not None and rs_dem is not None:
+                rs_wl, rs_width = _extract_wl_width_points(rs_dis, rs_dem)
+                if len(rs_wl) != 0:
+                    relation_df = pd.concat([relation_df, pd.DataFrame({'rs_wl': rs_wl, 'rs_width': rs_width})], axis=1)
+                    ax_width_temp.scatter(rs_width, rs_wl, s=8 ** 2, color='none', edgecolor=(1, 0, 0), linewidth=2, marker='s', label='Raster DEM')
+
+            ax_width_temp.set_ylabel('Water level/m', fontname='Times New Roman', fontsize=24, fontweight='bold')
+            ax_width_temp.set_xlabel('River width/m', fontname='Times New Roman', fontsize=24, fontweight='bold')
+            ax_width_temp.legend(fontsize=18)
+            plt.savefig(relation_output_path + cs_name + '_wl_width.png', dpi=500)
+            plt.close()
+            relation_df.to_csv(relation_output_path + cs_name + '_wl_width.csv', encoding='GB18030')
+
+        def _plot_wl_area_relation(cs_name, insitu_dis, insitu_dem, rs_dis=None, rs_dem=None):
+            relation_output_path = output_path + 'wl_area_relation\\'
+            bf.create_folder(relation_output_path)
+            insitu_wl, insitu_area = _extract_wl_area_points(insitu_dis, insitu_dem)
+            relation_df = pd.DataFrame({'insitu_wl': insitu_wl, 'insitu_flow_area': insitu_area})
+
+            fig_area_temp, ax_area_temp = plt.subplots(figsize=(8, 6), constrained_layout=True)
+            ax_area_temp.plot(insitu_area, insitu_wl, color=(0, 1, 0), linewidth=2, marker='o', markersize=6, markerfacecolor='none', label='In-situ DEM')
+
+            if rs_dis is not None and rs_dem is not None:
+                rs_wl, rs_area = _extract_wl_area_points(rs_dis, rs_dem)
+                if len(rs_wl) != 0:
+                    relation_df = pd.concat([relation_df, pd.DataFrame({'rs_wl': rs_wl, 'rs_flow_area': rs_area})], axis=1)
+                    ax_area_temp.plot(rs_area, rs_wl, color=(1, 0, 0), linewidth=2, marker='s', markersize=6, markerfacecolor='none', label='Raster DEM')
+
+            ax_area_temp.set_ylabel('Water level/m', fontname='Times New Roman', fontsize=24, fontweight='bold')
+            ax_area_temp.set_xlabel('Flow area/$m^2$', fontname='Times New Roman', fontsize=24, fontweight='bold')
+            ax_area_temp.legend(fontsize=18)
+            plt.savefig(relation_output_path + cs_name + '_wl_area.png', dpi=500)
+            plt.close()
+            relation_df.to_csv(relation_output_path + cs_name + '_wl_area.csv', encoding='GB18030')
+
+        def _plot_inun_freq_dem_diff_relation(cs_name, inun_freq_list, dem_diff_list):
+            relation_output_path = output_path + 'inun_freq_dem_diff_relation\\'
+            bf.create_folder(relation_output_path)
+            inun_freq_arr_temp = np.asarray(inun_freq_list, dtype=np.float64)
+            dem_diff_arr_temp = np.asarray(dem_diff_list, dtype=np.float64)
+            valid_pos = np.isfinite(inun_freq_arr_temp) & np.isfinite(dem_diff_arr_temp)
+            inun_freq_arr_temp = inun_freq_arr_temp[valid_pos]
+            dem_diff_arr_temp = dem_diff_arr_temp[valid_pos]
+
+            relation_df = pd.DataFrame({
+                'inun_freq': inun_freq_arr_temp,
+                'dem_diff': dem_diff_arr_temp
+            })
+            fig_diff_temp, ax_diff_temp = plt.subplots(figsize=(8, 6), constrained_layout=True)
+            ax_diff_temp.scatter(inun_freq_arr_temp, dem_diff_arr_temp, s=8 ** 2,
+                                 color='none', edgecolor=(0, 0, 1), linewidth=2, marker='o')
+            ax_diff_temp.axhline(0, color='black', linewidth=1, linestyle='--')
+            ax_diff_temp.set_xlabel('Inundation frequency', fontname='Times New Roman', fontsize=24,
+                                    fontweight='bold')
+            ax_diff_temp.set_ylabel('DEM difference/m', fontname='Times New Roman', fontsize=24,
+                                    fontweight='bold')
+            plt.savefig(relation_output_path + cs_name + '_inun_freq_dem_diff.png', dpi=500)
+            plt.close()
+            relation_df.to_csv(relation_output_path + cs_name + '_inun_freq_dem_diff.csv',
+                               encoding='GB18030', index=False)
 
         # Compare dem
         RS_dem_all = {}
@@ -3169,48 +3194,30 @@ class CSprofile(object):
 
                 if dem_temp is not None:
                     for __ in range(len(dem_temp)):
-                        coord_x = coords_temp.coords[__][0]
-                        coord_y = coords_temp.coords[__][1]
-                        pos_x_new = (coord_x - ul_x) / x_res
-                        pos_y_new = (coord_y - ul_y) / y_res
-                        pos_x = int(np.floor((coord_x - ul_x) / x_res))
-                        pos_y = int(np.floor((coord_y - ul_y) / y_res))
-                        if np.isnan(arr[pos_y, pos_x]):
-                            if inun_freq_factor:
-                                RS_dem.append([np.nan, np.nan, np.nan])
-                            else:
-                                RS_dem.append([np.nan, np.nan])
-                        else:
-                            x, y, z, dis, z_dis = [], [], [], [], []
-                            inun_freq_l = [] if inun_freq_factor else None
-                            inun_freq_dis = [] if inun_freq_factor else None
-                            for pos_y_temp in range(pos_y - 2, pos_y + 4):
-                                for pos_x_temp in range(pos_x - 2, pos_x + 4):
-                                    if ~np.isnan(arr[pos_y_temp, pos_x_temp]):
-                                        x.append(pos_x_temp + 0.5)
-                                        y.append(pos_y_temp + 0.5)
-                                        z.append(arr[pos_y_temp, pos_x_temp])
-                                        dis.append(1 / (x_res * distance_between_2points([pos_x_new, pos_y_new], [pos_x_temp, pos_y_temp])))
-                                        z_dis.append(arr[pos_y_temp, pos_x_temp] / (x_res * distance_between_2points([pos_x_new, pos_y_new], [pos_x_temp, pos_y_temp])))
-                                        if inun_freq_factor:
-                                            inun_freq_l.append(1 / (x_res * distance_between_2points([pos_x_new, pos_y_new], [pos_x_temp, pos_y_temp])))
-                                            inun_freq_dis.append(inun_freq_arr[pos_y_temp, pos_x_temp] / (x_res * distance_between_2points([pos_x_new, pos_y_new], [pos_x_temp, pos_y_temp])))
-
-                            v2 = np.sum(np.array(z_dis)) / np.sum(np.array(dis))
-                            if inun_freq_factor:
-                                v3 = np.sum(np.array(inun_freq_l)) / np.sum(np.array(inun_freq_dis))
-                            # func = interpolate.CloughTocher2DInterpolator(list(zip(x, y)), z)
-                            # v = func(pos_x_new, pos_y_new)
-                            if pos_x < arr.shape[1] and pos_y < arr.shape[0]:
-                                if inun_freq_factor:
-                                    RS_dem.append([coords_temp.coords[__], v2, v3])
-                                else:
-                                    RS_dem.append([coords_temp.coords[__], v2])
-                            else:
+                        try:
+                            coord_x = coords_temp.coords[__][0]
+                            coord_y = coords_temp.coords[__][1]
+                            pos_x_new = (coord_x - ul_x) / x_res
+                            pos_y_new = (coord_y - ul_y) / y_res
+                            pos_x = int(np.floor((coord_x - ul_x) / x_res))
+                            pos_y = int(np.floor((coord_y - ul_y) / y_res))
+                            if not (0 <= pos_x < arr.shape[1] and 0 <= pos_y < arr.shape[0]):
                                 if inun_freq_factor:
                                     RS_dem.append([np.nan, np.nan, np.nan])
                                 else:
                                     RS_dem.append([np.nan, np.nan])
+                            else:
+                                v2 = _idw_interpolate(arr, pos_x_new, pos_y_new)
+                                if inun_freq_factor:
+                                    inun_pos_x = (coord_x - inun_ul_x) / inun_x_res
+                                    inun_pos_y = (coord_y - inun_ul_y) / inun_y_res
+                                    v3 = _idw_interpolate(inun_freq_arr, inun_pos_x, inun_pos_y)
+                                    RS_dem.append([coords_temp.coords[__], v2, v3])
+                                else:
+                                    RS_dem.append([coords_temp.coords[__], v2])
+                        except:
+                            print(traceback.format_exc())
+                            RS_dem = None
 
                     RS_dem_all[cs_name_] = RS_dem
                 else:
@@ -3222,6 +3229,7 @@ class CSprofile(object):
                 fig_temp, ax_temp = plt.subplots(figsize=(11, 5), constrained_layout=True)
                 offset = dem_temp[0][0]
                 insitu_dem, insitu_dis, rs_dem, rs_dis = [], [], [], []
+                section_inun_freq, section_dem_diff = [], []
 
                 for __ in range(len(dem_temp)):
                     insitu_dis.append(dem_temp[__][0] - offset)
@@ -3241,11 +3249,18 @@ class CSprofile(object):
                         dem_diff_all.append(np.nan)
 
                     if inun_freq_factor:
-                        inun_freq_all.append(RS_dem_all[cs_name_][__][2])
+                        inun_freq_temp = RS_dem_all[cs_name_][__][2]
+                        inun_freq_all.append(inun_freq_temp)
+                        section_inun_freq.append(inun_freq_temp)
+                        section_dem_diff.append(dem_diff_all[-1])
 
                 ax_temp.scatter(insitu_dis, insitu_dem, s=12**2, color="none", edgecolor=(0, 1, 0), linewidth=3, marker='o')
                 ax_temp.scatter(rs_dis, rs_dem, s=12**2, color="none", edgecolor=(1, 0, 0), linewidth=3, marker='s')
                 plt.savefig(output_path + cs_name_ + '.png', dpi=500)
+                _plot_wl_width_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                _plot_wl_area_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                if inun_freq_factor:
+                    _plot_inun_freq_dem_diff_relation(cs_name_, section_inun_freq, section_dem_diff)
                 plt.close()
                 fig_temp = None
                 ax_temp = None
@@ -3256,6 +3271,155 @@ class CSprofile(object):
             df = pd.DataFrame({'csname': section_name_all, 'rs_dem': rs_dem_all, 'insitu_dem': insitu_dem_all, 'rs_dis': rs_dis_all})
         rmse = np.sqrt(np.sum((np.array(rs_dem_all) - np.array(insitu_dem_all)) ** 2))
         df.to_csv(output_path + f'dem_all_{str(rmse)[0:6]}.csv', encoding='GB18030')
+
+    def refine_annual_topography(self, thalweg_temp, inun_dc: Landsat_dc, hydro_dc: HydroDC, elevation_map: str = None):
+
+        if self.work_env is None:
+            self.work_env = thalweg_temp.work_env
+
+        # Get the elevation map
+        if self.ref_ele_map is None and elevation_map is None:
+            raise IOError('Please input the elevation map before refinement!')
+        elif elevation_map is not None:
+            try:
+                ele_ds = gdal.Open(elevation_map)
+                ele_arr = ele_ds.GetRasterBand(1).ReadAsArray()
+            except:
+                print(traceback.format_exc())
+                raise TypeError('Please mention the elevation map is not correctly imported!')
+        else:
+            try:
+                ele_ds = gdal.Open(self.ref_ele_map)
+                ele_arr = ele_ds.GetRasterBand(1).ReadAsArray()
+            except:
+                print(traceback.format_exc())
+                raise TypeError('Please mention the elevation map is not correctly imported!')
+
+        # thalweg extraction
+        if thalweg_temp.smoothed_Thalweg is None:
+            linestr = thalweg_temp.smoothed_Thalweg
+        else:
+            linestr = thalweg_temp.Thalweg_Linestring
+
+        # Check the year
+        if hydro_dc.year not in self.year_list:
+            raise Exception('Please input the hydro datacube under right year!')
+        elif hydro_dc.year not in np.unique(np.floor(np.array(inun_dc.sdc_doylist)/10000).astype(np.int32)):
+            raise Exception('Please input the inundation dc under right year!')
+
+        boundary_wl = np.zeros_like(ele_arr) * np.nan
+        inundation_arr = np.zeros_like(ele_arr)
+        for _ in inun_dc.sdc_doylist:
+            if int(np.floor(_/10000)) == hydro_dc.year:
+
+                # Retrieve the flood inundation map
+                inun_arr = inun_dc.dc[:, :, inun_dc.sdc_doylist.index(_)]
+                inun_arr_output = copy.deepcopy(inun_arr)
+                inun_arr_output[inun_arr != 2] = 0
+                inun_arr_output[inun_arr == 2] = 1
+                inundation_arr = np.logical_or(inundation_arr, inun_arr_output)
+                bf.create_folder(f'{self.work_env}inundation_temp\\')
+                bf.write_raster(ele_ds, inun_arr_output, f'{self.work_env}inundation_temp\\', str(_) + '.tif', raster_datatype=gdal.GDT_Byte)
+
+                src_temp = rasterio.open(f'{self.work_env}inundation_temp\\' + str(_) + '.tif')
+                shp_dic = ({'properties': {'raster_val': int(v)}, 'geometry': s} for i, (s, v) in
+                           enumerate(rasterio.features.shapes(inun_arr_output, connectivity=8, transform=src_temp.transform)) if
+                           ~np.isnan(v))
+                meta = src_temp.meta.copy()
+                meta.update(compress='lzw')
+
+                # Extract the flood inundation area (remove depressions)
+                shp_list = list(shp_dic)
+                nw_shp_list = []
+                shp_file = gp.GeoDataFrame.from_features(shp_list)
+                for __ in range(shp_file.shape[0]):
+                    if shp_file['raster_val'][__] == 1:
+                        if linestr.intersects(shp_file['geometry'][__]):
+                            nw_shp_list.append(shp_list[__])
+                nw_shp_file = gp.GeoDataFrame.from_features(nw_shp_list)
+
+                bf.create_folder(f'{self.work_env}inundation_final\\')
+                if os.path.exists(f'{self.work_env}inundation_final\\{str(_)}.tif'):
+                    os.remove(f'{self.work_env}inundation_final\\{str(_)}.tif')
+
+                with rasterio.open(f'{self.work_env}inundation_final\\{str(_)}.tif', 'w+', **meta) as out:
+                    out_arr = out.read(1)
+                    out_arr[inun_arr == 0] = 0
+                    # this is where we create a generator of geom, value pairs to use in rasterizing
+                    shapes = ((geom, value) for geom, value in zip(nw_shp_file.geometry, nw_shp_file.raster_val)) if nw_shp_file.shape[0] != 0 else None
+                    burned = rasterio.features.rasterize(shapes=shapes, fill=0, out=out_arr, transform=src_temp.transform) if shapes is not None else out_arr
+                    out.write_band(1, burned)
+
+                # Get the boundary pixel
+                ds_temp = gdal.Open(f'{self.work_env}inundation_final\\{str(_)}.tif')
+                arr_temp = ds_temp.GetRasterBand(1).ReadAsArray()
+                arr_temp[inun_arr == 1] = 0
+                pos = np.argwhere(arr_temp == 1)
+
+                # Get the water level map
+                doy = bf.date2doy(_)
+                if isinstance(hydro_dc.hydrodatacube, NDSparseMatrix):
+                    hydro = hydro_dc.hydrodatacube.SM_group[doy].toarray()
+                else:
+                    pass
+
+                # Get the boundary water level
+                if pos.shape[0] != 0:
+                    for __ in pos:
+                        dc_temp = inun_arr[__[0] - 1: __[0] + 2, __[1] - 1: __[1] + 2]
+
+                        if 1 in dc_temp:
+                            wl_inundated_list, wl_noninun_list = [], []
+                            for ___ in inun_dc.sdc_doylist:
+                                if int(np.floor(___ / 10000)) == hydro_dc.year:
+                                    doy_t = bf.date2doy(___)
+                                    if inun_dc.dc[__[0], __[1], inun_dc.sdc_doylist.index(___)] == 2:
+                                        wl_inundated_list.append(hydro_dc.hydrodatacube[int(__[0]), int(__[1]), hydro_dc.hydrodatacube.SM_namelist.index(doy_t)])
+                                    elif inun_dc.dc[__[0], __[1], inun_dc.sdc_doylist.index(___)] == 1:
+                                        wl_noninun_list.append(hydro_dc.hydrodatacube[__[0], __[1], hydro_dc.hydrodatacube.SM_namelist.index(doy_t)])
+
+                            wl_noninun_list = np.array(wl_noninun_list)
+                            if wl_noninun_list.shape[0] == 0 or np.sum(wl_noninun_list > hydro[__[0], __[1]]) / wl_noninun_list.shape[0] > 0.1:
+                                pass
+                            else:
+                                if np.isnan(boundary_wl[__[0], __[1]]):
+                                    boundary_wl[__[0], __[1]] = hydro[__[0], __[1]]
+                                else:
+                                    boundary_wl[__[0], __[1]] = min(hydro[__[0], __[1]], boundary_wl[__[0], __[1]])
+
+        bias_arr = boundary_wl - ele_arr
+        bf.write_raster(ele_ds, boundary_wl, self.work_env, f'{str(hydro_dc.year)}_wl_boundary.tif', nodatavalue=np.nan)
+        bf.write_raster(ele_ds, bias_arr, self.work_env, f'{str(hydro_dc.year)}_bias.tif', nodatavalue=np.nan)
+
+        with rasterio.open(self.work_env + f'{str(hydro_dc.year)}_bias.tif') as raster:
+            # Read the specific band
+            band = raster.read(1)  # assuming you're interested in the first band
+
+            # Coordinate transformation
+            transform = raster.transform
+
+            # Extract points, here assuming we want all non-zero or non-nodata values
+            rows, cols = np.where(band != raster.nodata) if ~np.isnan(raster.nodata) else np.where(~np.isnan(band))
+            points = [transform * (col, row) for col, row in zip(cols, rows)]
+            values = band[rows, cols]  # The corresponding raster values
+
+            # Create geospatial points
+            geometries = [Point(xy) for xy in points]
+            gdf = gp.GeoDataFrame({'geometry': geometries, 'Raster Value': values})
+
+            # Set the coordinate reference system (CRS) to the raster's CRS
+            gdf.crs = raster.crs
+
+            # Save to a Shapefile
+            gdf.to_file(self.work_env + f'{str(hydro_dc.year)}_bias.shp')
+            # Interpolate the bias
+            # Method 1 Kriging
+
+            # Method 2 Cubic interpolation
+
+            # Method 3 Linear interpolation
+
+            # Method 4
 
 
     def to_geojson(self, output_path: str = None):

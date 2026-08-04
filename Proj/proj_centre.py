@@ -5,9 +5,18 @@ from River_GIS.River_GIS import *
 
 if __name__ == '__main__':
 
+    wl1 = HydroStationDS()
+    wl1.from_std_csvs('G:\A_HH_mid\wl\\')
+    thal1 = Thalweg()
+    thal1 = thal1.from_geojson('G:\A_HH_mid\\thalweg\\thalweg.json')
+    thal1.from_smooth_Thalweg_shp('G:\A_HH_mid\\thalweg\\thalweg_smooth.shp')
+    thal1.merged_hydro_inform(wl1)
+    bath_method = Flood_freq_based_hyspometry_method([_ for _ in range(2016, 2022)])
+    bath_method.perform_in_epoch(thal1, 'G:\A_HH_mid\\static_wi_thr_inundation_frequency.TIF')
+
     # Water level import
     # wl1 = HydroStationDS()
-    # wl1.import_from_standard_files('G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\', 'G:\\A_1Dflow_sed\\Hydrodynamic_model\\Original_water_level\\对应表.csv')
+    # wl1.from_std_csvs('G:\A_1Dflow_sed\Hydrodynamic_model\Original_water_level\standard_csv\\')
 
     # # Cross section construction POST-TGD
     # cs1 = CSprofile('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\')
@@ -21,20 +30,20 @@ if __name__ == '__main__':
     # thal1 = cs1.generate_Thalweg()
 
     # thal1 = Thalweg()
-    # thal1 = thal1.load_geojson('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_geojson\\thelwag.json')
-    # thal1.load_smooth_Thalweg_shp('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\output_shpfile\\thelwag_smooth.shp')
+    # thal1 = thal1.from_geojson('D:\A_MYR_Sentinel2\\thalweg\\thelwag.json')
+    # thal1.from_smooth_Thalweg_shp('D:\A_MYR_Sentinel2\\thalweg\\thelwag_smooth.shp')
     # thal1.merged_hydro_inform(wl1)
-    #
-    # bath_method = Flood_freq_based_hyspometry_method([_ for _ in range(2004, 2021)])
-    # bath_method.perform_in_epoch(thal1, 'G:\\A_Landsat_Floodplain_veg\\Landsat_floodplain_2020_datacube\\Inundation_DT_datacube\\inun_factor\\DT_inundation_frequency_posttgd.TIF')
+    # #
+    # bath_method = Flood_freq_based_hyspometry_method([_ for _ in range(2019, 2025)])
+    # bath_method.perform_in_epoch(thal1, 'D:\A_MYR_Sentinel2\Sentinel2_L2A_Output\Sentinel2_MYR_datacube\inundation_static_wi_thr_datacube\inun_factor\\static_wi_thr_inundation_frequency.TIF')
 
     # # Cross-section construction POST-TGD
-    cs1 = CSprofile()
-    cs1.from_CSProf41DHM('G:\A_1Dflow_sed\Hydrodynamic_model\MYR_input\MYR_CSProf.csv')
-    cs1 = CSprofile('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\')
-    cs1.from_stdCSfiles('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_DEM_2019_all.csv')
-    cs1.import_CS_coords('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_coordinates_wgs84.csv', epsg_crs='epsg:32649')
-    cs1.import_CS_tribu('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_tributary.xlsx')
+    # cs1 = CSprofile()
+    # cs1.from_CSProf41DHM('G:\A_1Dflow_sed\Hydrodynamic_model\MYR_input\MYR_CSProf.csv')
+    # cs1 = CSprofile('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\')
+    # cs1.from_stdCSfiles('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_DEM_2019_all.csv')
+    # cs1.import_CS_coords('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_coordinates_wgs84.csv', epsg_crs='epsg:32649')
+    # cs1.import_CS_tribu('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Original_cross_section\\cross_section_tributary.xlsx')
     # cs1.merge_Hydrods(wl1, )
     # cs1.generate_CSProf41DHM('G:\\A_Landsat_Floodplain_veg\\Hydrodynamic_model\\para\\',ROI_name='MYR')
     # cs1.to_geojson()
@@ -86,31 +95,31 @@ if __name__ == '__main__':
     #     bf.write_raster(pre_ele_ds, pre_ele_arr, 'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\', 'ele_pretgd4model.TIF')
     #     bf.write_raster(post_ele_ds, post_ele_arr, 'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\', 'ele_posttgd4model.TIF')
     #
-    thal1 = cs1.to_Thalweg()
+    # thal1 = cs1.to_Thalweg()
     #
     # # Import hydrodatacube
     # # with concurrent.futures.ProcessPoolExecutor() as exe:
     # #     exe.map(multiple_concept_model([_ for _ in range(1987, 2004)], thal1))
-    for year in range(1987, 2004):
-        hydrodc1 = HydroDC()
-        hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
-        hydrodc1.seq_simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_pretgd4model.TIF', thal1, 'G:\A_Landsat_Floodplain_veg\Water_level_python\inundation_status\\prewl_predem\\')
-
-    for year in range(1987, 2004):
-        hydrodc1 = HydroDC()
-        hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
-        hydrodc1.seq_simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_posttgd4model.TIF', thal1, 'G:\A_Landsat_Floodplain_veg\Water_level_python\inundation_status\\prewl_postdem\\')
-
-    for year in range(2004, 2021):
-        hydrodc1 = HydroDC()
-        hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
-        hydrodc1.seq_simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_pretgd4model.TIF', thal1, 'G:\A_Landsat_Floodplain_veg\Water_level_python\inundation_status\\postwl_predem\\')
-
-    for year in range(2004, 2021):
-        hydrodc1 = HydroDC()
-        hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
-        hydrodc1.seq_simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_posttgd4model.TIF', thal1, 'G:\A_Landsat_Floodplain_veg\Water_level_python\inundation_status\\postwl_postdem\\')
+    # for year in range(1987, 2004):
+    #     hydrodc1 = HydroDC()
+    #     hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
+    #     hydrodc1.seq_simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_pretgd4model.TIF', thal1, 'G:\A_Landsat_Floodplain_veg\Water_level_python\inundation_status\\prewl_predem\\')
     #
+    # for year in range(1987, 2004):
+    #     hydrodc1 = HydroDC()
+    #     hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
+    #     hydrodc1.seq_simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_posttgd4model.TIF', thal1, 'G:\A_Landsat_Floodplain_veg\Water_level_python\inundation_status\\prewl_postdem\\')
+    #
+    # for year in range(2004, 2021):
+    #     hydrodc1 = HydroDC()
+    #     hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
+    #     hydrodc1.seq_simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_pretgd4model.TIF', thal1, 'G:\A_Landsat_Floodplain_veg\Water_level_python\inundation_status\\postwl_predem\\')
+    #
+    # for year in range(2004, 2021):
+    #     hydrodc1 = HydroDC()
+    #     hydrodc1.from_hydromatrix(f'G:\\A_Landsat_Floodplain_veg\\Water_level_python\\hydrodatacube\\{str(year)}\\')
+    #     hydrodc1.seq_simplified_conceptual_inundation_model('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\ele_posttgd4model.TIF', thal1, 'G:\A_Landsat_Floodplain_veg\Water_level_python\inundation_status\\postwl_postdem\\')
+    # #
     # # Cross section construction POST-TGD
     # cs1 = CSprofile('G:\\A_Landsat_Floodplain_veg\\Water_level_python\\Post_TGD\\')
     # cs1.from_stdCSfiles(
