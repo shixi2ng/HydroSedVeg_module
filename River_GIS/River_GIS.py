@@ -3158,9 +3158,7 @@ class CSprofile(object):
                     inun_freq_factor = True
                 except:
                     raise ValueError('The inun_freq file is problematic!')
-        elif inun_freq is None:
-            inun_freq_factor=False
-        else:
+        elif inun_freq is not None:
             raise TypeError('The inun_freq should be a TIF file')
         else:
             inun_freq_factor = False
@@ -3226,6 +3224,16 @@ class CSprofile(object):
             difference = raster_arr[valid_pos] - insitu_arr[valid_pos]
             return (int(np.sum(valid_pos)), np.sqrt(np.mean(difference ** 2)),
                     np.mean(np.abs(difference)), np.mean(difference))
+
+        def _compare_sampling_errors(insitu_values, bicubic_values, nearest_values):
+            insitu_arr = np.asarray(insitu_values, dtype=np.float64)
+            bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
+            nearest_arr = np.asarray(nearest_values, dtype=np.float64)
+            common_valid = (np.isfinite(insitu_arr) & np.isfinite(bicubic_arr) &
+                            np.isfinite(nearest_arr))
+            common_insitu = insitu_arr[common_valid]
+            return (_calculate_error_metrics(common_insitu, bicubic_arr[common_valid]),
+                    _calculate_error_metrics(common_insitu, nearest_arr[common_valid]))
 
         def _preprocess_cross_section_points(dis_list, ele_list):
             dis_arr = np.array(dis_list, dtype=np.float32)
