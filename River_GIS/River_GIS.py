@@ -3172,6 +3172,7 @@ class CSprofile(object):
         dem_diff_all, nearest_dem_diff_all, interpolation_error_rows = [], [], []
         comparison_insitu_all, comparison_bicubic_all, comparison_nearest_all = [], [], []
         excluded_saturated_rsdem_count_all = 0
+        all_insitu_wl_area_relations = []
         inun_freq_all = [] if inun_freq_factor else None
         plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
         plt.rc('font', size=24)
@@ -3334,7 +3335,10 @@ class CSprofile(object):
                         flow_area_temp += wet_depth * wet_width / 2
                 flow_area_list.append(flow_area_temp)
 
-            return wl_list.tolist(), flow_area_list
+            wl_arr = np.asarray(wl_list, dtype=np.float64)
+            flow_area_arr = np.asarray(flow_area_list, dtype=np.float64)
+            wl_sort_pos = np.argsort(wl_arr, kind='stable')
+            return wl_arr[wl_sort_pos].tolist(), flow_area_arr[wl_sort_pos].tolist()
 
         def _plot_wl_width_relation(cs_name, insitu_dis, insitu_dem, rs_dis=None, rs_dem=None):
             relation_output_path = output_path + 'wl_width_relation\\'
@@ -3379,6 +3383,37 @@ class CSprofile(object):
             plt.savefig(relation_output_path + cs_name + '_wl_area.png', dpi=500)
             plt.close()
             relation_df.to_csv(relation_output_path + cs_name + '_wl_area.csv', encoding='GB18030')
+            return insitu_wl, insitu_area
+
+        def _plot_all_insitu_wl_area_relations(relations):
+            if len(relations) == 0:
+                return
+
+            relation_output_path = output_path + 'wl_area_relation\\'
+            bf.create_folder(relation_output_path)
+            fig_area_all, ax_area_all = plt.subplots(
+                figsize=(11, 7), constrained_layout=True)
+            relation_rows = []
+            for cs_name, wl_values, area_values in relations:
+                ax_area_all.plot(area_values, wl_values, linewidth=1.5,
+                                 label=str(cs_name))
+                relation_rows.extend([
+                    {'csname': cs_name, 'insitu_wl': wl_value,
+                     'insitu_flow_area': area_value}
+                    for wl_value, area_value in zip(wl_values, area_values)
+                ])
+
+            ax_area_all.set_ylabel('Water level/m', fontname='Times New Roman',
+                                   fontsize=24, fontweight='bold')
+            ax_area_all.set_xlabel('Flow area/$m^2$', fontname='Times New Roman',
+                                   fontsize=24, fontweight='bold')
+            ax_area_all.legend(fontsize=10, ncol=2)
+            fig_area_all.savefig(
+                relation_output_path + 'all_cross_sections_insitu_wl_area.png', dpi=500)
+            plt.close(fig_area_all)
+            pd.DataFrame(relation_rows).to_csv(
+                relation_output_path + 'all_cross_sections_insitu_wl_area.csv',
+                encoding='GB18030', index=False)
 
         def _plot_inun_freq_dem_diff_relation(cs_name, inun_freq_list, dem_diff_list):
             relation_output_path = output_path + 'inun_freq_dem_diff_relation\\'
@@ -3572,12 +3607,17 @@ class CSprofile(object):
                 ])
                 plt.savefig(output_path + cs_name_ + '.png', dpi=500)
                 _plot_wl_width_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
-                _plot_wl_area_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                insitu_wl, insitu_area = _plot_wl_area_relation(
+                    cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                all_insitu_wl_area_relations.append(
+                    (cs_name_, insitu_wl, insitu_area))
                 if inun_freq_factor:
                     _plot_inun_freq_dem_diff_relation(cs_name_, section_inun_freq, section_dem_diff)
                 plt.close()
                 fig_temp = None
                 ax_temp = None
+
+        _plot_all_insitu_wl_area_relations(all_insitu_wl_area_relations)
 
         bicubic_metrics, nearest_metrics = _compare_sampling_errors(
             comparison_insitu_all, comparison_bicubic_all, comparison_nearest_all)
