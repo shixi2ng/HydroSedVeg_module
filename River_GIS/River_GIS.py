@@ -3613,17 +3613,32 @@ class CSprofile(object):
                 ])
 
                 fig_interp, ax_interp = plt.subplots(figsize=(8, 6), constrained_layout=True)
+                upstream_label = (f"{upstream_relation['csname']} "
+                                  f"({upstream_distance:.2f} m upstream)")
+                downstream_label = (f"{downstream_relation['csname']} "
+                                    f"({downstream_distance:.2f} m downstream)")
+                ax_interp.plot(upstream_relation['area'], upstream_relation['wl'],
+                               color=(0.5, 0.5, 0.5), linewidth=1.5, linestyle='--',
+                               label=upstream_label)
+                ax_interp.plot(downstream_relation['area'], downstream_relation['wl'],
+                               color=(0.2, 0.2, 0.2), linewidth=1.5, linestyle='--',
+                               label=downstream_label)
                 ax_interp.plot(actual_area, target_wl, color=(0, 1, 0), linewidth=2,
                                marker='o', markersize=6, markerfacecolor='none',
-                               label='Actual wl-area')
+                               label=f"{current_relation['csname']} actual wl-area")
                 ax_interp.plot(predicted_area, target_wl, color=(0, 0, 1), linewidth=2,
                                marker='s', markersize=6, markerfacecolor='none',
                                label='Distance-interpolated wl-area')
+                ax_interp.annotate(
+                    f"Upstream: {upstream_relation['csname']}\nDistance: {upstream_distance:.2f} m\n"
+                    f"Downstream: {downstream_relation['csname']}\nDistance: {downstream_distance:.2f} m",
+                    xy=(0.02, 0.98), xycoords='axes fraction', va='top', ha='left',
+                    fontsize=12, bbox=dict(boxstyle='round', facecolor='white', alpha=0.75))
                 ax_interp.set_ylabel('Water level/m', fontname='Times New Roman',
                                      fontsize=24, fontweight='bold')
                 ax_interp.set_xlabel('Flow area/$m^2$', fontname='Times New Roman',
                                      fontsize=24, fontweight='bold')
-                ax_interp.legend(fontsize=14)
+                ax_interp.legend(fontsize=10)
                 fig_interp.savefig(
                     relation_output_path + current_relation['csname'] +
                     '_adjacent_interpolated_wl_area.png', dpi=500)
