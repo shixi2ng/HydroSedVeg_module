@@ -3100,11 +3100,19 @@ class CSprofile(object):
         thalweg_ele.Thalweg_geodf = gp.GeoDataFrame(dic, crs=self.cross_section_geodf.crs)
         return thalweg_ele
 
-    def compare_2D_DEM(self, dem_tif: str, diff_ele=False, inun_freq=None):
+    def compare_2D_DEM(self, dem_tif: str, diff_ele=False, inun_freq=None,
+                       inun_freq_saturation_ratio=0.95,
+                       rsdem_saturation_wl_threshold=None):
 
         # Check the condition
         if diff_ele is True and (self.cross_section_diff is None or self.cross_section_diff_geometry is None):
             raise Exception('Please calculate the difference before comparison!')
+        if (not isinstance(inun_freq_saturation_ratio, (int, float)) or
+                not 0 < inun_freq_saturation_ratio <= 1):
+            raise ValueError('The inun_freq_saturation_ratio should be within (0, 1].')
+        if (rsdem_saturation_wl_threshold is not None and
+                not isinstance(rsdem_saturation_wl_threshold, (int, float, list, tuple, dict))):
+            raise TypeError('The rsdem_saturation_wl_threshold should be a number, list, tuple, or dict.')
 
         # Import dem tif
         if isinstance(dem_tif, str):
@@ -3167,7 +3175,8 @@ class CSprofile(object):
         insitu_dem_all, rs_dem_all, nearest_dem_all, section_name_all, rs_dis_all = [], [], [], [], []
         dem_diff_all, nearest_dem_diff_all, interpolation_error_rows = [], [], []
         comparison_insitu_all, comparison_bicubic_all, comparison_nearest_all = [], [], []
-        excluded_rsdem_lowest_count_all = 0
+        excluded_saturated_rsdem_count_all = 0
+        all_insitu_wl_area_relations = []
         inun_freq_all = [] if inun_freq_factor else None
         plt.rcParams['font.family'] = ['Times New Roman', 'SimHei']
         plt.rc('font', size=24)
@@ -3237,17 +3246,142 @@ class CSprofile(object):
             return (_calculate_error_metrics(common_insitu, bicubic_arr[common_valid]),
                     _calculate_error_metrics(common_insitu, nearest_arr[common_valid]))
 
-        def _exclude_lowest_rsdem_points(insitu_values, bicubic_values, nearest_values):
+        def _resolve_section_wl_threshold(cs_name, section_index):
+            if rsdem_saturation_wl_threshold is None:
+                return np.nan
+            if isinstance(rsdem_saturation_wl_threshold, dict):
+                threshold = rsdem_saturation_wl_threshold.get(cs_name, np.nan)
+            elif isinstance(rsdem_saturation_wl_threshold, (list, tuple)):
+                threshold = (rsdem_saturation_wl_threshold[section_index]
+                             if section_index < len(rsdem_saturation_wl_threshold) else np.nan)
+            else:
+                threshold = rsdem_saturation_wl_threshold
+            try:
+                threshold = float(threshold)
+            except (TypeError, ValueError):
+                threshold = np.nan
+            return threshold if np.isfinite(threshold) else np.nan
+
+        def _identify_saturated_rsdem_points(inun_freq_values, insitu_values, bicubic_values,
+                                             nearest_values, section_wl_threshold=np.nan):
+            """Identify saturated RSDEM points with an inundation filter plus an automatic low-WL error scan."""
             insitu_arr = np.asarray(insitu_values, dtype=np.float64)
             bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
             nearest_arr = np.asarray(nearest_values, dtype=np.float64)
-            finite_bicubic = np.isfinite(bicubic_arr)
-            if not np.any(finite_bicubic):
-                return insitu_arr, bicubic_arr, nearest_arr
-            lowest_rsdem = np.nanmin(bicubic_arr[finite_bicubic])
-            retained_pos = ~(finite_bicubic & np.isclose(bicubic_arr, lowest_rsdem))
+            saturated_points = np.zeros(bicubic_arr.shape, dtype=bool)
+            valid_rsdem = np.isfinite(bicubic_arr) | np.isfinite(nearest_arr)
+
+            if inun_freq_values is None:
+                section_saturation_threshold = np.nan
+            else:
+                inun_freq_arr = np.asarray(inun_freq_values, dtype=np.float64)
+                valid_frequency = np.isfinite(inun_freq_arr) & valid_rsdem
+                if np.any(valid_frequency):
+                    section_max_frequency = np.max(inun_freq_arr[valid_frequency])
+                    section_saturation_threshold = (section_max_frequency *
+                                                    inun_freq_saturation_ratio)
+                    saturated_points = (valid_frequency &
+                                        (inun_freq_arr >= section_saturation_threshold))
+                else:
+                    section_saturation_threshold = np.nan
+
+            if np.isfinite(section_wl_threshold):
+                wl_saturated_points = (valid_rsdem &
+                                       ((np.isfinite(bicubic_arr) &
+                                         (bicubic_arr <= section_wl_threshold)) |
+                                        (np.isfinite(nearest_arr) &
+                                         (nearest_arr <= section_wl_threshold))))
+                return saturated_points | wl_saturated_points, section_saturation_threshold, section_wl_threshold
+
+            automatic_wl_threshold = _detect_low_rsdem_error_threshold(
+                insitu_arr, bicubic_arr, nearest_arr, saturated_points)
+            if np.isfinite(automatic_wl_threshold):
+                rsdem_arr = _combine_rsdem_elevation(bicubic_arr, nearest_arr)
+                error_arr = _calculate_rsdem_abs_error(insitu_arr, bicubic_arr, nearest_arr)
+                high_error_threshold = _calculate_high_error_threshold(
+                    error_arr[np.isfinite(error_arr) & ~saturated_points])
+                automatic_saturated_points = (valid_rsdem & np.isfinite(error_arr) &
+                                              (rsdem_arr <= automatic_wl_threshold) &
+                                              (error_arr >= high_error_threshold))
+                saturated_points = saturated_points | automatic_saturated_points
+
+            return saturated_points, section_saturation_threshold, automatic_wl_threshold
+
+        def _combine_rsdem_elevation(bicubic_values, nearest_values):
+            bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
+            nearest_arr = np.asarray(nearest_values, dtype=np.float64)
+            rsdem_arr = np.full(bicubic_arr.shape, np.nan, dtype=np.float64)
+            both_valid = np.isfinite(bicubic_arr) & np.isfinite(nearest_arr)
+            rsdem_arr[both_valid] = (bicubic_arr[both_valid] + nearest_arr[both_valid]) / 2
+            bicubic_only = np.isfinite(bicubic_arr) & ~both_valid
+            nearest_only = np.isfinite(nearest_arr) & ~both_valid
+            rsdem_arr[bicubic_only] = bicubic_arr[bicubic_only]
+            rsdem_arr[nearest_only] = nearest_arr[nearest_only]
+            return rsdem_arr
+
+        def _calculate_rsdem_abs_error(insitu_values, bicubic_values, nearest_values):
+            insitu_arr = np.asarray(insitu_values, dtype=np.float64)
+            bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
+            nearest_arr = np.asarray(nearest_values, dtype=np.float64)
+            bicubic_error = np.where(np.isfinite(bicubic_arr) & np.isfinite(insitu_arr),
+                                     np.abs(bicubic_arr - insitu_arr), np.nan)
+            nearest_error = np.where(np.isfinite(nearest_arr) & np.isfinite(insitu_arr),
+                                     np.abs(nearest_arr - insitu_arr), np.nan)
+            error_arr = np.full(insitu_arr.shape, np.nan, dtype=np.float64)
+            both_valid = np.isfinite(bicubic_error) & np.isfinite(nearest_error)
+            error_arr[both_valid] = np.maximum(bicubic_error[both_valid],
+                                               nearest_error[both_valid])
+            bicubic_only = np.isfinite(bicubic_error) & ~both_valid
+            nearest_only = np.isfinite(nearest_error) & ~both_valid
+            error_arr[bicubic_only] = bicubic_error[bicubic_only]
+            error_arr[nearest_only] = nearest_error[nearest_only]
+            return error_arr
+
+        def _calculate_high_error_threshold(error_values):
+            error_arr = np.asarray(error_values, dtype=np.float64)
+            error_arr = error_arr[np.isfinite(error_arr)]
+            if error_arr.size < 3:
+                return np.nan
+            q25, q75 = np.nanpercentile(error_arr, [25, 75])
+            iqr = q75 - q25
+            if iqr == 0:
+                return np.nan
+            return q75 + 1.5 * iqr
+
+        def _detect_low_rsdem_error_threshold(insitu_values, bicubic_values, nearest_values,
+                                              already_excluded_points):
+            rsdem_arr = _combine_rsdem_elevation(bicubic_values, nearest_values)
+            error_arr = _calculate_rsdem_abs_error(insitu_values, bicubic_values, nearest_values)
+            retained_valid = (np.isfinite(rsdem_arr) & np.isfinite(error_arr) &
+                              ~already_excluded_points)
+            if np.sum(retained_valid) < 3:
+                return np.nan
+            high_error_threshold = _calculate_high_error_threshold(error_arr[retained_valid])
+            if not np.isfinite(high_error_threshold):
+                return np.nan
+            sorted_pos = np.argsort(rsdem_arr[retained_valid])
+            valid_indices = np.where(retained_valid)[0][sorted_pos]
+            low_error_indices = []
+            for valid_index in valid_indices:
+                if error_arr[valid_index] >= high_error_threshold:
+                    low_error_indices.append(valid_index)
+                else:
+                    break
+            if len(low_error_indices) == 0:
+                return np.nan
+            return float(np.max(rsdem_arr[low_error_indices]))
+
+        def _exclude_saturated_rsdem_points(insitu_values, bicubic_values, nearest_values,
+                                            inun_freq_values, section_wl_threshold=np.nan):
+            insitu_arr = np.asarray(insitu_values, dtype=np.float64)
+            bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
+            nearest_arr = np.asarray(nearest_values, dtype=np.float64)
+            saturated_points, section_saturation_threshold, automatic_wl_threshold = \
+                _identify_saturated_rsdem_points(
+                    inun_freq_values, insitu_arr, bicubic_arr, nearest_arr, section_wl_threshold)
+            retained_pos = ~saturated_points
             return (insitu_arr[retained_pos], bicubic_arr[retained_pos],
-                    nearest_arr[retained_pos])
+                    nearest_arr[retained_pos], section_saturation_threshold, automatic_wl_threshold)
 
         def _preprocess_cross_section_points(dis_list, ele_list):
             dis_arr = np.array(dis_list, dtype=np.float32)
@@ -3311,7 +3445,10 @@ class CSprofile(object):
                         flow_area_temp += wet_depth * wet_width / 2
                 flow_area_list.append(flow_area_temp)
 
-            return wl_list.tolist(), flow_area_list
+            wl_arr = np.asarray(wl_list, dtype=np.float64)
+            flow_area_arr = np.asarray(flow_area_list, dtype=np.float64)
+            wl_sort_pos = np.argsort(wl_arr, kind='stable')
+            return wl_arr[wl_sort_pos].tolist(), flow_area_arr[wl_sort_pos].tolist()
 
         def _plot_wl_width_relation(cs_name, insitu_dis, insitu_dem, rs_dis=None, rs_dem=None):
             relation_output_path = output_path + 'wl_width_relation\\'
@@ -3356,6 +3493,150 @@ class CSprofile(object):
             plt.savefig(relation_output_path + cs_name + '_wl_area.png', dpi=500)
             plt.close()
             relation_df.to_csv(relation_output_path + cs_name + '_wl_area.csv', encoding='GB18030')
+            return insitu_wl, insitu_area
+
+        def _plot_all_insitu_wl_area_relations(relations):
+            if len(relations) == 0:
+                return
+
+            relation_output_path = output_path + 'wl_area_relation\\'
+            bf.create_folder(relation_output_path)
+            fig_area_all, ax_area_all = plt.subplots(
+                figsize=(11, 7), constrained_layout=True)
+            relation_rows = []
+            for cs_name, cs_dist, wl_values, area_values in relations:
+                ax_area_all.plot(area_values, wl_values, linewidth=1.5,
+                                 label=str(cs_name))
+                relation_rows.extend([
+                    {'csname': cs_name, 'cs_DistLgRiv': cs_dist,
+                     'insitu_wl': wl_value, 'insitu_flow_area': area_value}
+                    for wl_value, area_value in zip(wl_values, area_values)
+                ])
+
+            ax_area_all.set_ylabel('Water level/m', fontname='Times New Roman',
+                                   fontsize=24, fontweight='bold')
+            ax_area_all.set_xlabel('Flow area/$m^2$', fontname='Times New Roman',
+                                   fontsize=24, fontweight='bold')
+            ax_area_all.legend(fontsize=10, ncol=2)
+            fig_area_all.savefig(
+                relation_output_path + 'all_cross_sections_insitu_wl_area.png', dpi=500)
+            plt.close(fig_area_all)
+            pd.DataFrame(relation_rows).to_csv(
+                relation_output_path + 'all_cross_sections_insitu_wl_area.csv',
+                encoding='GB18030', index=False)
+
+
+        def _interpolate_wl_area_from_adjacent_sections(relations):
+            relation_output_path = output_path + 'wl_area_relation\\'
+            bf.create_folder(relation_output_path)
+            valid_relations = []
+            for cs_name, cs_dist, wl_values, area_values in relations:
+                try:
+                    cs_dist = float(cs_dist)
+                except (TypeError, ValueError):
+                    cs_dist = np.nan
+                wl_arr = np.asarray(wl_values, dtype=np.float64)
+                area_arr = np.asarray(area_values, dtype=np.float64)
+                valid_pos = np.isfinite(wl_arr) & np.isfinite(area_arr)
+                if np.isfinite(cs_dist) and np.sum(valid_pos) >= 2:
+                    wl_arr = wl_arr[valid_pos]
+                    area_arr = area_arr[valid_pos]
+                    sort_pos = np.argsort(wl_arr, kind='stable')
+                    valid_relations.append({
+                        'csname': cs_name,
+                        'distance': cs_dist,
+                        'wl': wl_arr[sort_pos],
+                        'area': area_arr[sort_pos]
+                    })
+            if len(valid_relations) < 3:
+                return
+
+            valid_relations = sorted(valid_relations, key=lambda relation: relation['distance'])
+            summary_rows = []
+            detail_rows = []
+            for relation_index in range(1, len(valid_relations) - 1):
+                upstream_relation = valid_relations[relation_index - 1]
+                current_relation = valid_relations[relation_index]
+                downstream_relation = valid_relations[relation_index + 1]
+                upstream_distance = current_relation['distance'] - upstream_relation['distance']
+                downstream_distance = downstream_relation['distance'] - current_relation['distance']
+                total_distance = downstream_relation['distance'] - upstream_relation['distance']
+                if upstream_distance < 0 or downstream_distance < 0 or total_distance <= 0:
+                    continue
+
+                wl_min = max(np.min(current_relation['wl']), np.min(upstream_relation['wl']),
+                             np.min(downstream_relation['wl']))
+                wl_max = min(np.max(current_relation['wl']), np.max(upstream_relation['wl']),
+                             np.max(downstream_relation['wl']))
+                valid_wl = ((current_relation['wl'] >= wl_min) &
+                            (current_relation['wl'] <= wl_max))
+                if not np.any(valid_wl):
+                    continue
+
+                target_wl = current_relation['wl'][valid_wl]
+                actual_area = current_relation['area'][valid_wl]
+                upstream_area = np.interp(target_wl, upstream_relation['wl'], upstream_relation['area'])
+                downstream_area = np.interp(target_wl, downstream_relation['wl'], downstream_relation['area'])
+                predicted_area = ((downstream_relation['distance'] - current_relation['distance']) /
+                                  total_distance * upstream_area +
+                                  (current_relation['distance'] - upstream_relation['distance']) /
+                                  total_distance * downstream_area)
+                area_diff = predicted_area - actual_area
+                valid_diff = np.isfinite(area_diff)
+                if not np.any(valid_diff):
+                    continue
+
+                rmse = np.sqrt(np.mean(area_diff[valid_diff] ** 2))
+                mae = np.mean(np.abs(area_diff[valid_diff]))
+                bias = np.mean(area_diff[valid_diff])
+                summary_rows.append({
+                    'csname': current_relation['csname'],
+                    'upstream_csname': upstream_relation['csname'],
+                    'downstream_csname': downstream_relation['csname'],
+                    'upstream_distance': upstream_distance,
+                    'downstream_distance': downstream_distance,
+                    'valid_count': int(np.sum(valid_diff)),
+                    'rmse': rmse,
+                    'mae': mae,
+                    'bias': bias
+                })
+                detail_rows.extend([
+                    {'csname': current_relation['csname'],
+                     'upstream_csname': upstream_relation['csname'],
+                     'downstream_csname': downstream_relation['csname'],
+                     'wl': wl_value,
+                     'actual_flow_area': actual_value,
+                     'interpolated_flow_area': predicted_value,
+                     'flow_area_diff': diff_value}
+                    for wl_value, actual_value, predicted_value, diff_value in
+                    zip(target_wl, actual_area, predicted_area, area_diff)
+                ])
+
+                fig_interp, ax_interp = plt.subplots(figsize=(8, 6), constrained_layout=True)
+                ax_interp.plot(actual_area, target_wl, color=(0, 1, 0), linewidth=2,
+                               marker='o', markersize=6, markerfacecolor='none',
+                               label='Actual wl-area')
+                ax_interp.plot(predicted_area, target_wl, color=(0, 0, 1), linewidth=2,
+                               marker='s', markersize=6, markerfacecolor='none',
+                               label='Distance-interpolated wl-area')
+                ax_interp.set_ylabel('Water level/m', fontname='Times New Roman',
+                                     fontsize=24, fontweight='bold')
+                ax_interp.set_xlabel('Flow area/$m^2$', fontname='Times New Roman',
+                                     fontsize=24, fontweight='bold')
+                ax_interp.legend(fontsize=14)
+                fig_interp.savefig(
+                    relation_output_path + current_relation['csname'] +
+                    '_adjacent_interpolated_wl_area.png', dpi=500)
+                plt.close(fig_interp)
+
+            if len(detail_rows) != 0:
+                pd.DataFrame(detail_rows).to_csv(
+                    relation_output_path + 'adjacent_interpolated_wl_area_details.csv',
+                    encoding='GB18030', index=False)
+            if len(summary_rows) != 0:
+                pd.DataFrame(summary_rows).to_csv(
+                    relation_output_path + 'adjacent_interpolated_wl_area_summary.csv',
+                    encoding='GB18030', index=False)
 
         def _plot_inun_freq_dem_diff_relation(cs_name, inun_freq_list, dem_diff_list):
             relation_output_path = output_path + 'inun_freq_dem_diff_relation\\'
@@ -3385,17 +3666,16 @@ class CSprofile(object):
 
         def _export_cross_section_dem_points(cs_name, distance_values, insitu_values,
                                              bicubic_values, nearest_values,
-                                             inun_freq_values=None):
+                                             inun_freq_values=None, section_wl_threshold=np.nan):
             point_output_path = output_path + 'cross_section_dem_points\\'
             bf.create_folder(point_output_path)
             insitu_arr = np.asarray(insitu_values, dtype=np.float64)
             bicubic_arr = np.asarray(bicubic_values, dtype=np.float64)
             nearest_arr = np.asarray(nearest_values, dtype=np.float64)
-            finite_bicubic = np.isfinite(bicubic_arr)
-            excluded_rsdem_lowest = np.zeros(bicubic_arr.shape, dtype=bool)
-            if np.any(finite_bicubic):
-                lowest_rsdem = np.nanmin(bicubic_arr[finite_bicubic])
-                excluded_rsdem_lowest = finite_bicubic & np.isclose(bicubic_arr, lowest_rsdem)
+            (excluded_saturated_rsdem, section_saturation_threshold,
+             automatic_wl_threshold) = _identify_saturated_rsdem_points(
+                inun_freq_values, insitu_arr, bicubic_arr, nearest_arr,
+                section_wl_threshold)
 
             point_data = {
                 'distance': distance_values,
@@ -3404,7 +3684,9 @@ class CSprofile(object):
                 'nearest_rsdem': nearest_arr,
                 'bicubic_dem_diff': bicubic_arr - insitu_arr,
                 'nearest_dem_diff': nearest_arr - insitu_arr,
-                'excluded_rsdem_lowest': excluded_rsdem_lowest
+                'excluded_saturated_rsdem': excluded_saturated_rsdem,
+                'section_inun_freq_saturation_threshold': section_saturation_threshold,
+                'section_rsdem_saturation_wl_threshold': automatic_wl_threshold
             }
             if inun_freq_values is not None:
                 point_data['inun_freq'] = inun_freq_values
@@ -3496,19 +3778,42 @@ class CSprofile(object):
                         section_inun_freq.append(inun_freq_temp)
                         section_dem_diff.append(dem_diff_all[-1])
 
-                ax_temp.scatter(insitu_dis, insitu_dem, s=12**2, color="none", edgecolor=(0, 1, 0), linewidth=3, marker='o')
-                ax_temp.scatter(rs_dis, rs_dem, s=12**2, color="none", edgecolor=(1, 0, 0), linewidth=3, marker='s')
                 section_bicubic = [RS_dem_all[cs_name_][pos][1] for pos in range(len(dem_temp))]
                 section_nearest = [RS_dem_all[cs_name_][pos][3] if inun_freq_factor else
                                    RS_dem_all[cs_name_][pos][2] for pos in range(len(dem_temp))]
+                section_wl_threshold = _resolve_section_wl_threshold(cs_name_, _)
+                (excluded_saturated_rsdem, section_saturation_threshold,
+                 automatic_wl_threshold) = _identify_saturated_rsdem_points(
+                    section_inun_freq if inun_freq_factor else None, insitu_dem,
+                    section_bicubic, section_nearest, section_wl_threshold)
+                section_distance_arr = np.asarray(insitu_dis, dtype=np.float64)
+                section_bicubic_arr = np.asarray(section_bicubic, dtype=np.float64)
+                valid_bicubic = np.isfinite(section_bicubic_arr)
+                retained_bicubic = valid_bicubic & ~excluded_saturated_rsdem
+                excluded_bicubic = valid_bicubic & excluded_saturated_rsdem
+
+                ax_temp.scatter(insitu_dis, insitu_dem, s=12**2, color="none",
+                                edgecolor=(0, 1, 0), linewidth=3, marker='o',
+                                label='In-situ DEM')
+                ax_temp.scatter(section_distance_arr[retained_bicubic],
+                                section_bicubic_arr[retained_bicubic], s=12**2,
+                                color="none", edgecolor=(1, 0, 0), linewidth=3,
+                                marker='s', label='Retained RSDEM')
+                ax_temp.scatter(section_distance_arr[excluded_bicubic],
+                                section_bicubic_arr[excluded_bicubic], s=12**2,
+                                color="none", edgecolor=(0, 0, 1), linewidth=3,
+                                marker='s', label='Excluded saturated RSDEM')
+                ax_temp.legend(fontsize=14)
                 _export_cross_section_dem_points(
                     cs_name_, insitu_dis, insitu_dem, section_bicubic, section_nearest,
-                    section_inun_freq if inun_freq_factor else None)
-                comparison_insitu, comparison_bicubic, comparison_nearest = \
-                    _exclude_lowest_rsdem_points(
-                        insitu_dem, section_bicubic, section_nearest)
-                excluded_rsdem_lowest_count = len(insitu_dem) - comparison_insitu.shape[0]
-                excluded_rsdem_lowest_count_all += excluded_rsdem_lowest_count
+                    section_inun_freq if inun_freq_factor else None, section_wl_threshold)
+                (comparison_insitu, comparison_bicubic, comparison_nearest,
+                 section_saturation_threshold, automatic_wl_threshold) = \
+                    _exclude_saturated_rsdem_points(
+                        insitu_dem, section_bicubic, section_nearest,
+                        section_inun_freq if inun_freq_factor else None, section_wl_threshold)
+                excluded_saturated_rsdem_count = len(insitu_dem) - comparison_insitu.shape[0]
+                excluded_saturated_rsdem_count_all += excluded_saturated_rsdem_count
                 bicubic_metrics, nearest_metrics = _compare_sampling_errors(
                     comparison_insitu, comparison_bicubic, comparison_nearest)
                 comparison_insitu_all.extend(comparison_insitu.tolist())
@@ -3518,20 +3823,31 @@ class CSprofile(object):
                 nearest_count, nearest_rmse, nearest_mae, nearest_bias = nearest_metrics
                 interpolation_error_rows.extend([
                     {'csname': cs_name_, 'method': 'bicubic', 'valid_count': bicubic_count,
-                     'excluded_rsdem_lowest_count': excluded_rsdem_lowest_count, 'rmse': bicubic_rmse,
+                     'inun_freq_saturation_threshold': section_saturation_threshold,
+                     'rsdem_saturation_wl_threshold': automatic_wl_threshold,
+                     'excluded_saturated_rsdem_count': excluded_saturated_rsdem_count, 'rmse': bicubic_rmse,
                      'mae': bicubic_mae, 'bias': bicubic_bias},
                     {'csname': cs_name_, 'method': 'nearest', 'valid_count': nearest_count,
-                     'excluded_rsdem_lowest_count': excluded_rsdem_lowest_count, 'rmse': nearest_rmse,
+                     'inun_freq_saturation_threshold': section_saturation_threshold,
+                     'rsdem_saturation_wl_threshold': automatic_wl_threshold,
+                     'excluded_saturated_rsdem_count': excluded_saturated_rsdem_count, 'rmse': nearest_rmse,
                      'mae': nearest_mae, 'bias': nearest_bias}
                 ])
                 plt.savefig(output_path + cs_name_ + '.png', dpi=500)
                 _plot_wl_width_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
-                _plot_wl_area_relation(cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                insitu_wl, insitu_area = _plot_wl_area_relation(
+                    cs_name_, insitu_dis, insitu_dem, rs_dis, rs_dem)
+                all_insitu_wl_area_relations.append(
+                    (cs_name_, self.cross_section_geodf['cs_DistLgRiv'][_],
+                     insitu_wl, insitu_area))
                 if inun_freq_factor:
                     _plot_inun_freq_dem_diff_relation(cs_name_, section_inun_freq, section_dem_diff)
                 plt.close()
                 fig_temp = None
                 ax_temp = None
+
+        _plot_all_insitu_wl_area_relations(all_insitu_wl_area_relations)
+        _interpolate_wl_area_from_adjacent_sections(all_insitu_wl_area_relations)
 
         bicubic_metrics, nearest_metrics = _compare_sampling_errors(
             comparison_insitu_all, comparison_bicubic_all, comparison_nearest_all)
@@ -3539,10 +3855,14 @@ class CSprofile(object):
         nearest_count, nearest_rmse, nearest_mae, nearest_bias = nearest_metrics
         interpolation_error_rows.extend([
             {'csname': 'Overall', 'method': 'bicubic', 'valid_count': bicubic_count,
-             'excluded_rsdem_lowest_count': excluded_rsdem_lowest_count_all, 'rmse': bicubic_rmse,
+             'inun_freq_saturation_threshold': np.nan,
+             'rsdem_saturation_wl_threshold': np.nan,
+             'excluded_saturated_rsdem_count': excluded_saturated_rsdem_count_all, 'rmse': bicubic_rmse,
              'mae': bicubic_mae, 'bias': bicubic_bias},
             {'csname': 'Overall', 'method': 'nearest', 'valid_count': nearest_count,
-             'excluded_rsdem_lowest_count': excluded_rsdem_lowest_count_all, 'rmse': nearest_rmse,
+             'inun_freq_saturation_threshold': np.nan,
+             'rsdem_saturation_wl_threshold': np.nan,
+             'excluded_saturated_rsdem_count': excluded_saturated_rsdem_count_all, 'rmse': nearest_rmse,
              'mae': nearest_mae, 'bias': nearest_bias}
         ])
         pd.DataFrame(interpolation_error_rows).to_csv(
